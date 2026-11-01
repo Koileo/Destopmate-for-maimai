@@ -1,0 +1,13 @@
+bin/
+obj/
+**/bin/
+**/obj/
+.tools/
+assets/local/
+.workbuddy/
+.vs/
+__pycache__/
+*.pyc
+*.user
+*.suo
+dist/

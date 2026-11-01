@@ -1,0 +1,98 @@
+## ============================================================
+##  DesktopMate for maimai —— 配置文件
+##  位置: <Package>\Mods\DesktopMate\DesktopMate.toml
+##  说明: 以 ## 开头是注释；键值对归属其上方的 [栏目]，修改后重启游戏生效
+## ============================================================
+
+[General]
+## 总开关
+Enabled = true
+## 热键开关（需要接键盘；机台无键盘时请只用 Enabled）
+HotkeyToggle = "F9"
+
+[Display]
+## 渲染方式: "3D" 优先加载 character.dmc；也支持 Unity 2018.4.7f1 AssetBundle
+##           "2D" 使用 sprites 目录下的 PNG 序列帧（零依赖，推荐先跑通这个）
+Renderer = "2D"
+## 画布缩放参考；实际布局读取 Screen.width/height，不代表窗口必须是此尺寸
+ReferenceWidth = 1920
+ReferenceHeight = 1080
+## 画布层级。必须高于游戏 UI（默认 0~100 区间），低于 AquaMai 的菜单（若菜单被挡住就调小）
+SortingOrder = 20000
+## 贴靠位置: BottomLeft | BottomCenter | BottomRight | Center
+Anchor = "BottomRight"
+## 相对贴靠点的像素偏移
+OffsetX = -140
+OffsetY = 0
+## 整体缩放
+Scale = 1.0
+## 双屏机台时把角色放在哪一侧: Auto | 1P | 2P | Both
+PlayerSlot = "Auto"
+## 3D 模式的离屏渲染分辨率（越小越省 GPU；1080 高足够）
+RenderTextureWidth = 900
+RenderTextureHeight = 1080
+## 角色专用渲染层，需与游戏占用的层错开（8~31）
+CharacterLayer = 30
+## 圆周登场：先露头，停顿，再让身体进入圆内。身体的几何裁切不写游戏 stencil。
+CircleEntrance = true
+## 圆心：按玩家区域的比例；Y=-1 自动按 1080x1920 竖屏主区域适配
+CircleCenterX = 0.5
+CircleCenterY = -1
+## 半径：游戏主区域适配后宽度的比例
+CircleRadius = 0.5
+## 头部占整张渲染图上部的比例；这部分允许出圆
+HeadFraction = 0.20
+
+[Trigger]
+## 系统闲置（广告 / 演示循环）时显示
+ShowInAttract = true
+## 未登录（已投币、等待刷卡）时显示
+ShowInEntryWaiting = true
+## 闲置过程中的广告视频段是否也显示（false 则只在标题/Logo 段显示）
+ShowInCommercial = false
+## 进入该状态后延迟多少秒才出现，避免与转场动画打架
+ShowDelaySeconds = 15
+## 状态失效后延迟多少秒淡出
+HideDelaySeconds = 2
+## 游玩/结算期间强制隐藏
+HideDuringGame = true
+
+[Character]
+## 角色目录名: Mods/DesktopMate/Characters/<Id>/
+Id = "placeholder"
+## 整体不透明度 0.0 ~ 1.0
+Opacity = 1.0
+FadeInSeconds = 0.6
+FadeOutSeconds = 0.35
+EnableBlink = true
+EnableLookAt = true
+## 角色在 1920x1080 画布上的目标高度（像素）
+HeightPixels = 860
+## 朝向微调（度），正数向玩家方向侧转
+YawDegrees = 0
+
+[Animation]
+## 单个待机动作的停留时长范围（秒）
+IdleMinSeconds = 6
+IdleMaxSeconds = 14
+## 待机动作名，需要与 Animator 里的 State/Trigger 同名
+IdleVariants = ["Idle", "Peek", "Stretch", "Wave"]
+## 对应权重，数量不足时按 1 处理
+IdleWeights = [6, 2, 1, 1]
+## 时长抖动比例（对应 DesktopMate 的 AddRandomFloat 语义）
+TimeJitter = 0.35
+## 视线漂移半径（对应 LookAtSoftClip）
+GazeRadius = 0.35
+## 探头、停顿、身体进入的时长（秒）及探头倾斜角度
+PeekInSeconds = 0.65
+PeekHoldSeconds = 1.3
+EnterSeconds = 1.2
+PeekTiltDegrees = 16
+
+[Debug]
+## 在 MelonLoader 日志里打印状态切换
+LogStateChanges = true
+## 强制常显，用于调试布局
+ForceShow = false
+## 验证时自动保存探头、进入、站立三个阶段截图；平时关闭
+CaptureOnShow = false

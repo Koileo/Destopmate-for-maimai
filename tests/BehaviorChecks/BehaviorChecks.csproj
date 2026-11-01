@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <MaimaiDir Condition="'$(MaimaiDir)' == ''">D:\BaiduNetdiskDownload\SDEZ170_nobga_v2\SDEZ170\Package</MaimaiDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\src\Config\*.cs" Link="Config\%(Filename)%(Extension)" />
+    <Compile Include="..\..\src\Core\CabinetWatcher.cs" Link="CabinetWatcher.cs" />
+    <Compile Include="..\..\src\Core\CharacterPresenter.cs" Link="CharacterPresenter.cs" />
+    <Compile Include="..\..\src\Core\EntranceMotion.cs" Link="EntranceMotion.cs" />
+    <Reference Include="0Harmony">
+      <HintPath>$(MaimaiDir)\MelonLoader\net35\0Harmony.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
