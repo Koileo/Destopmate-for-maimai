@@ -83,6 +83,18 @@ IdleWeights = [6, 2, 1, 1]
 TimeJitter = 0.35
 ## 视线漂移半径（对应 LookAtSoftClip）
 GazeRadius = 0.35
+## 动作整体速度倍率（1.0 = 设计节奏；0.8 更慵懒，1.2 更活泼）
+MotionSpeed = 1.0
+## 手势幅度倍率（1.0 = 设计值；调到 0.7 动作更含蓄，1.3 更外放）
+GestureIntensity = 1.0
+## 一次完整呼吸的时长（秒）；吸气 40%、停顿 8%、呼气 52%
+BreathSeconds = 3.9
+## 二连眨概率（真人约 10%~25%）
+DoubleBlinkChance = 0.18
+## 腿部微动（重心转移时的膝/踝微调）。下半身被圆裁切时可关掉省一点开销
+EnableLegMotion = true
+## 身体进入圆内后的落定回弹时长（秒）
+EntranceSettleSeconds = 0.35
 ## 探头、停顿、身体进入的时长（秒）及探头倾斜角度
 PeekInSeconds = 0.65
 PeekHoldSeconds = 1.3

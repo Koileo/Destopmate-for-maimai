@@ -27,13 +27,17 @@
 │  ├─ Core/OverlayCanvas.cs        # 画布/层级/布局/双屏
 │  ├─ Core/CharacterStage.cs       # 3D(RT+相机) / 2D(序列帧) 两条渲染通路
 │  ├─ Core/CharacterDriver.cs      # 动作原语抽象 + Animator/序列帧实现
+│  ├─ Core/RigDriver.cs            # 3D 本地角色驱动（接线动作运行时）
+│  ├─ Core/Motion/                 # 动作运行时：Pose / Clip / Binder / MotionRig / 缓动
 │  ├─ Core/IdleBrain.cs            # 待机大脑（状态机/抖动/表情三轨）
 │  ├─ Core/CharacterPresenter.cs   # 淡入淡出与滞回
 │  └─ Core/CharacterLoader.cs      # AssetBundle / 序列帧加载
 └─ docs/
    ├─ 01-Desktop-Mate结构分析.md    # 可复用的结构、动画与待机逻辑
    ├─ 02-舞萌适配说明.md            # 分辨率/层级/触发/配置/运行环境
-   └─ 03-模块划分与实现要点.md      # 模块图、实现要点、里程碑、测试清单
+   ├─ 03-模块划分与实现要点.md      # 模块图、实现要点、里程碑、测试清单
+   ├─ 05-角色动作链优化.md          # 动作链结构、问题清单、优化设计与改动点
+   └─ 06-动作验收.md                # v0.3 本机游戏动作验收与截图
 ```
 
 ## 本机使用：Desktop Mate 初音
@@ -62,7 +66,14 @@ YawDegrees = 180
 
 上面是相关字段示例，请合并到原有栏目，勿重复添加同名栏目。`build.bat` 保留已有配置。圆形模式忽略 `Anchor/OffsetX/OffsetY`，位置由圆心、半径与进场路径决定；`CircleEntrance=false` 可恢复角落模式。
 
-当前移植保留几何、骨骼和 23 个表情形变，使用游戏自带材质近似显示，以及程序控制的呼吸、眨眼、视线和挥手。原版 lilToon 光照、动作控制器、头发/裙摆物理尚未移植。
+当前移植保留几何、骨骼、蒙皮和 23 个表情形变，使用游戏自带材质近似显示。原版 lilToon 光照、动作控制器、头发/裙摆物理尚未移植；
+待机动作由程序生成（v0.3）：
+
+- **三层动作运行时**：呼吸（非对称曲线、周期漂移）+ 重心漂移 + 噪声微动 常驻；手势层叠加 7 段关键帧动作；眨眼/视线/表情独立成层
+- **完整人形链**：胯、脊柱三节、颈、头、肩、上臂、前臂、手、大腿、小腿、脚、眼球共 22 个关节，都带过渡帧
+- **动作库**：`Wave`（预备→抬手→三次递减摆动→落臂过冲）、`Peek`、`Stretch`（含张嘴）、`Sigh`、`Shift`（重心转移）、`LookAround`、`Nod`
+- **进场四段式**：探头（倾斜过冲）→ 停顿 → 弧线进入 → 落定回弹
+- 动作细节说明见 [docs/05-角色动作链优化.md](docs/05-角色动作链优化.md)
 
 ## 无本地模型时：2D 测试
 
@@ -141,6 +152,10 @@ Python 环境需要 NumPy、cryptography，以及 `.tools/python` 下的 UnityPy
 | 改透明度 | `Character.Opacity` |
 | 关掉某个触发 | `Trigger.ShowInAttract` / `ShowInEntryWaiting` / `ShowInCommercial` |
 | 待机动作节奏 | `Animation.IdleMinSeconds` / `IdleMaxSeconds` / `TimeJitter` |
+| 动作快慢 / 幅度 | `Animation.MotionSpeed` / `GestureIntensity` |
+| 呼吸节奏 | `Animation.BreathSeconds` |
+| 进场落定回弹 | `Animation.EntranceSettleSeconds` |
+| 关掉腿部微动 | `Animation.EnableLegMotion = false` |
 | 人物挡住 AquaMai 菜单 | `Display.SortingOrder` 调到 1000 以下 |
 
 ## 状态说明
@@ -156,7 +171,7 @@ Python 环境需要 NumPy、cryptography，以及 `.tools/python` 下的 UnityPy
 
 ## 构建与判定验证（2026-11-01）
 
-- 已使用 .NET SDK **8.0.427** 和本机 SDEZ170 Package 的 DLL 构建 Release：**0 警告、0 错误**。
+- 已使用 .NET SDK **8.0.427** 和本机 SDEZ170 Package 的 DLL 构建 Release：**0 警告、0 错误**（v0.3 动作运行时同样 0/0）。
 - 已运行 `build.bat`，安装 DLL 和本地转换的 `miku-local` 到本机 Package 的 `Mods`；安装配置选择 3D 初音。
 - 修复了 Harmony 类型名冲突、Unity 引用缺失、F9 关闭后无法再开启、广告开关无效，以及游玩/结算未立即隐藏的问题。
 - **20 项无界面判定检查通过**，覆盖显示延迟、转场进程干扰、探头时间线、资源失败隐藏、登录后隐藏、广告开关和游玩优先级。运行方式：
@@ -166,6 +181,17 @@ Python 环境需要 NumPy、cryptography，以及 `.tools/python` 下的 UnityPy
   ```
 
 这些检查使用生产判定与配置源码，替换了画布、动画与日志，不验证 Unity 渲染或触摸。`Debug.CaptureOnShow=true` 会在首次展示保存 `head-peek.png`、`body-enter.png`、`display-check.png` 及离屏人物图 `character-texture.png` 到 `Mods/DesktopMate/`。双屏、AquaMai 菜单和刷卡全流程仍需实机验收。
+
+另有 **27 项动作检查**，直接运行生产 `IdleBrain`、`MotionRig` 和动作库，覆盖单一 Idle 配置十分钟不插入手势、单一动作重复、落定边界连续性、不同落定时长，以及全部 7 段动作的完成状态和数值有效性：
+
+```powershell
+& "$env:LOCALAPPDATA\Microsoft\dotnet-sdk-8\dotnet.exe" run --project tests\MotionChecks\MotionChecks.csproj -c Release
+```
+
+这组检查仅替换 Unity 数学、驱动接口和日志，不验证骨骼绑定与渲染。落定曲线从零位移、零速度开始，避免进入落定段时突然下跳；单一动作配置不再被防重复逻辑替换为 `Shift`。
+
+v0.3 的动作链改造只改变 3D 本地角色的姿态计算与进场后段，`EntranceMotion` 的 `Reveal/Tilt` 端点语义未变，上述 20 项检查全部仍然通过。
+已在本机 1080×1600 游戏窗口运行 v0.3，检查单一 Idle 与全部 7 段动作，并修复 Stretch 手部超出取景的问题。最终采集 2,929 帧运行数据和 393 张人物图，七段动作均完整结束，无异常姿态值或贴图边缘裁切；原配置保留。验收方式、截图与范围见 [docs/06-动作验收.md](docs/06-动作验收.md)。关节方向的设计说明见 [docs/05](docs/05-角色动作链优化.md) §6。
 
 已在本机 1080×1600 游戏窗口验证上图三个阶段，修复正脸朝向和衣服深度闪点。本机安装配置等待 18 秒，使标题动画先完成；通用模板仍为 15 秒。`tools/package_release.ps1` 生成只含 DLL、配置、2D 测试图和安装说明的发布 ZIP；[安装说明](docs/04-安装与验证.md) 包含验证范围。
 

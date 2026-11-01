@@ -191,6 +191,18 @@ namespace DesktopMateOnMaimai.Core
             Vector2 hiddenHead = new Vector2(width + h * _aspect, peekHead.y);
             Vector2 head = pose.Reveal <= 1f ? Vector2.Lerp(hiddenHead, peekHead, pose.Reveal)
                 : Vector2.Lerp(peekHead, fullHead, pose.Reveal - 1f);
+
+            // 进入时走一点横向弧线，避免"直线平推"的塑料感
+            if (pose.Arc > 0f)
+            {
+                Vector2 travel = fullHead - peekHead;
+                var perpendicular = new Vector2(-travel.y, travel.x);
+                float magnitude = perpendicular.magnitude;
+                if (magnitude > 0.001f)
+                    head += perpendicular / magnitude * (radius * 0.06f * pose.Arc);
+            }
+            head.y -= pose.Dip;
+
             Quaternion rotation = Quaternion.Euler(0f, 0f, pose.Tilt);
             Vector3 headFromFoot = rotation * new Vector3(0f, h * (1f - cfg.HeadFraction * 0.5f), 0f);
             CharacterRect.anchoredPosition = head - new Vector2(headFromFoot.x, headFromFoot.y);

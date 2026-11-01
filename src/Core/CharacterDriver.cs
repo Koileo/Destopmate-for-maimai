@@ -16,6 +16,13 @@ namespace DesktopMateOnMaimai.Core
     internal interface ICharacterDriver
     {
         bool Ready { get; }
+
+        /// <summary>驱动自己管眨眼时为 true，IdleBrain 就不再重复下发 Blink 触发。</summary>
+        bool ManagesBlink { get; }
+
+        /// <summary>正在播一段不可打断的动作，IdleBrain 会等它结束再排下一个。</summary>
+        bool Busy { get; }
+
         void SetTrigger(string name);
         void SetBool(string name, bool value);
         void SetFloat(string name, float value);
@@ -36,6 +43,8 @@ namespace DesktopMateOnMaimai.Core
         private readonly int _faceLayer;
 
         public bool Ready => _anim != null;
+        public bool ManagesBlink => false;   // 交给 Animator 里的 Blink State 自己循环
+        public bool Busy => false;
 
         public AnimatorDriver(Animator anim, Transform lookTarget, int faceLayer = -1)
         {
@@ -109,6 +118,8 @@ namespace DesktopMateOnMaimai.Core
         private float _oneShotTimer;
 
         public bool Ready => _image != null && _clips.Count > 0;
+        public bool ManagesBlink => false;
+        public bool Busy => _playingOneShot;
 
         public SpriteDriver(RawImage image, RawImage head, string spriteDir)
         {

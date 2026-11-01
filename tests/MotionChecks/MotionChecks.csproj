@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Config/*.cs" Link="Config/%(Filename)%(Extension)" />
+    <Compile Include="../../src/Core/IdleBrain.cs" Link="IdleBrain.cs" />
+    <Compile Include="../../src/Core/EntranceMotion.cs" Link="EntranceMotion.cs" />
+    <Compile Include="../../src/Core/Motion/*.cs" Exclude="../../src/Core/Motion/PoseBinder.cs" Link="Motion/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

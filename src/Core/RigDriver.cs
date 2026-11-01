@@ -1,71 +1,98 @@
 using System;
+using DesktopMateOnMaimai.Config;
+using DesktopMateOnMaimai.Core.Motion;
 using UnityEngine;
 
 namespace DesktopMateOnMaimai.Core
 {
-    // The original model and morphs, with modest procedural motion on the 2018 rig.
+    /// <summary>
+    /// 本地角色（DMCHAR01）的 3D 驱动。
+    ///
+    /// 旧实现只有 4 根骨骼在动（Head / Spine2 / Arm_L / Arm_R），而且挥手是布尔开关，
+    /// 一帧内直接从 -65° 跳到 -15°，没有过渡、没有跟随、没有收尾。
+    /// 现在改为：MotionRig 负责"动什么"（分层姿态），PoseBinder 负责"怎么动到骨头上"，
+    /// 本类只做两者的接线与动作原语翻译。
+    /// </summary>
     internal sealed class RigDriver : ICharacterDriver
     {
         private readonly PortableCharacter _model;
-        private readonly Transform _head, _spine, _leftArm, _rightArm;
-        private readonly Quaternion _headRest, _spineRest, _leftRest, _rightRest;
-        private readonly SkinnedMeshRenderer _face;
-        private readonly int _blink = -1;
-        private float _time, _blinkTime, _waveTime;
-        private Vector3 _gaze;
-        public bool Ready => _model.Root != null;
+        private readonly PoseBinder _binder;
+        private readonly MotionRig _motion;
 
-        public RigDriver(PortableCharacter model)
+        public bool Ready
+        {
+            get { return _model != null && _model.Root != null && _binder != null && _binder.Ready; }
+        }
+
+        public bool ManagesBlink { get { return true; } }
+        public bool Busy { get { return _motion != null && _motion.Busy; } }
+
+        public RigDriver(PortableCharacter model, ModConfig cfg)
         {
             _model = model;
-            foreach (var bone in model.Nodes)
-            {
-                switch (bone.name)
-                {
-                    case "Head": _head = bone; break;
-                    case "Spine2": _spine = bone; break;
-                    case "Arm_Left": _leftArm = bone; break;
-                    case "Arm_Right": _rightArm = bone; break;
-                }
-            }
-            _headRest = _head != null ? _head.localRotation : Quaternion.identity;
-            _spineRest = _spine != null ? _spine.localRotation : Quaternion.identity;
-            _leftRest = _leftArm != null ? _leftArm.localRotation : Quaternion.identity;
-            _rightRest = _rightArm != null ? _rightArm.localRotation : Quaternion.identity;
-            foreach (var renderer in model.Renderers)
-            {
-                int index = renderer.sharedMesh.GetBlendShapeIndex("Eye_Blink");
-                if (index >= 0) { _face = renderer; _blink = index; break; }
-            }
-            Tick(0f);
+            _binder = new PoseBinder(model);
+            _motion = new MotionRig(cfg.BreathSeconds, cfg.GestureIntensity, cfg.DoubleBlinkChance,
+                cfg.EnableBlink, cfg.EnableLegMotion);
+            _motion.SetSpeed(cfg.MotionSpeed);
+            // 先摆一帧，避免首帧还停在 T-pose
+            Tick(0.016f);
         }
 
         public void Tick(float dt)
         {
-            _time += dt;
-            _blinkTime = Mathf.Max(0f, _blinkTime - dt);
-            _waveTime = Mathf.Max(0f, _waveTime - dt);
-            if (_head != null) _head.localRotation = _headRest * Quaternion.Euler(
-                Mathf.Sin(_time * 0.7f) * 2f + _gaze.y * 8f, _gaze.x * 18f, Mathf.Sin(_time * 0.43f) * 2f);
-            if (_spine != null) _spine.localRotation = _spineRest * Quaternion.Euler(Mathf.Sin(_time * 1.4f) * 0.7f, 0f, Mathf.Sin(_time * 0.65f) * 0.8f);
-            // Move the imported T-pose arms down; a Wave briefly raises the right arm.
-            if (_leftArm != null) _leftArm.localRotation = _leftRest * Quaternion.Euler(-65f, 0f, 0f);
-            if (_rightArm != null) _rightArm.localRotation = _rightRest * Quaternion.Euler(_waveTime > 0f ? -15f : -65f,
-                _waveTime > 0f ? Mathf.Sin(_time * 9f) * 12f : 0f, 0f);
-            if (_face != null && _blink >= 0)
-                _face.SetBlendShapeWeight(_blink, _blinkTime > 0f ? Mathf.Sin(_blinkTime / 0.18f * Mathf.PI) * 100f : 0f);
+            if (!Ready) return;
+            _motion.Tick(dt);
+            _binder.Apply(_motion.Output);
         }
 
         public void SetTrigger(string name)
         {
-            if (string.Equals(name, "Blink", StringComparison.OrdinalIgnoreCase)) _blinkTime = 0.18f;
-            if (string.Equals(name, "Wave", StringComparison.OrdinalIgnoreCase)) _waveTime = 2f;
+            if (!Ready || string.IsNullOrEmpty(name)) return;
+            _motion.Play(name);
         }
-        public void SetBool(string name, bool value) { }
-        public void SetFloat(string name, float value) { }
-        public void PlayFace(string name) { SetTrigger(name); }
-        public void LookAt(Vector3 localPoint) { _gaze = localPoint; }
-        public void SetSpeed(float speed) { }
-        public void Dispose() { _model.Dispose(); }
+
+        public void SetBool(string name, bool value)
+        {
+            if (!Ready) return;
+            if (string.Equals(name, "Sleep", StringComparison.OrdinalIgnoreCase)) _motion.SetSleep(value);
+            else if (string.Equals(name, "Blink", StringComparison.OrdinalIgnoreCase) && value) _motion.Play("Blink");
+        }
+
+        public void SetFloat(string name, float value)
+        {
+            if (!Ready) return;
+            if (string.Equals(name, "Speed", StringComparison.OrdinalIgnoreCase))
+                _motion.SetSpeed(value <= 0f ? 1f : value);
+            else if (string.Equals(name, "Intensity", StringComparison.OrdinalIgnoreCase))
+                _motion.SetIntensity(value);
+        }
+
+        public void PlayFace(string name)
+        {
+            if (!Ready) return;
+            _motion.PlayFace(name);
+        }
+
+        public void LookAt(Vector3 localPoint)
+        {
+            if (!Ready) return;
+            _motion.LookAt(localPoint);
+        }
+
+        public void SetSpeed(float speed)
+        {
+            if (!Ready) return;
+            _motion.SetSpeed(speed <= 0f ? 1f : speed);
+        }
+
+        public void ResetPose()
+        {
+            _motion.Reset();
+        }
+
+        public void Dispose()
+        {
+            if (_model != null) _model.Dispose();
+        }
     }
 }

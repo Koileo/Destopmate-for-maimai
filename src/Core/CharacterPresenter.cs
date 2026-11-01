@@ -81,9 +81,11 @@ namespace DesktopMateOnMaimai.Core
                 : (_cfg.FadeOutSeconds <= 0.01f ? 100f : 1f / _cfg.FadeOutSeconds);
 
             _alpha = MoveTowards(_alpha, target, speed * dt);
+            // 进场时间线用钳制过的 dt：卡顿一帧不该让角色瞬移半程
+            float motionDt = dt > 0.1f ? 0.1f : dt;
             _motionTime = _showing
-                ? Math.Min(EntranceMotion.Duration(_cfg), _motionTime + dt)
-                : Math.Max(0f, _motionTime - dt * EntranceMotion.Duration(_cfg) / Math.Max(0.05f, _cfg.FadeOutSeconds));
+                ? Math.Min(EntranceMotion.Duration(_cfg), _motionTime + motionDt)
+                : Math.Max(0f, _motionTime - motionDt * EntranceMotion.Duration(_cfg) / Math.Max(0.05f, _cfg.FadeOutSeconds));
             _overlay.SetEntrance(_motionTime, _cfg);
 
             _overlay.SetAlpha(_alpha * _cfg.Opacity);

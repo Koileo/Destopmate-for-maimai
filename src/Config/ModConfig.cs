@@ -65,6 +65,14 @@ namespace DesktopMateOnMaimai.Config
         public float TimeJitter = 0.35f;            // 对应 DesktopMate 的 AddRandomFloat 语义
         public float GazeRadius = 0.35f;
 
+        // ---- Animation / 动作细节（v0.3）----
+        public float MotionSpeed = 1.0f;            // 全局动作速度倍率
+        public float GestureIntensity = 1.0f;       // 手势幅度倍率（1.0 = 设计值）
+        public float BreathSeconds = 3.9f;          // 一次完整呼吸周期
+        public float DoubleBlinkChance = 0.18f;     // 二连眨概率
+        public bool EnableLegMotion = true;         // 腿部微动（圆裁切遮住下半身时可关）
+        public float EntranceSettleSeconds = 0.35f; // 进入圆内后的落定回弹时长
+
         // ---- Debug ----
         public bool LogStateChanges = true;
         public bool ForceShow = false;
@@ -130,6 +138,13 @@ namespace DesktopMateOnMaimai.Config
                 cfg.IdleWeights = t.GetFloatArray("Animation", "IdleWeights", cfg.IdleWeights);
                 cfg.TimeJitter = t.GetFloat("Animation", "TimeJitter", cfg.TimeJitter);
                 cfg.GazeRadius = t.GetFloat("Animation", "GazeRadius", cfg.GazeRadius);
+                cfg.MotionSpeed = Clamp(t.GetFloat("Animation", "MotionSpeed", cfg.MotionSpeed), 0.2f, 2.5f);
+                cfg.GestureIntensity = Clamp(t.GetFloat("Animation", "GestureIntensity", cfg.GestureIntensity), 0f, 1.5f);
+                cfg.BreathSeconds = t.GetFloat("Animation", "BreathSeconds", cfg.BreathSeconds);
+                if (cfg.BreathSeconds < 1.2f) cfg.BreathSeconds = 1.2f;
+                cfg.DoubleBlinkChance = Clamp(t.GetFloat("Animation", "DoubleBlinkChance", cfg.DoubleBlinkChance), 0f, 1f);
+                cfg.EnableLegMotion = t.GetBool("Animation", "EnableLegMotion", cfg.EnableLegMotion);
+                cfg.EntranceSettleSeconds = Clamp(t.GetFloat("Animation", "EntranceSettleSeconds", cfg.EntranceSettleSeconds), 0f, 2f);
 
                 cfg.LogStateChanges = t.GetBool("Debug", "LogStateChanges", cfg.LogStateChanges);
                 cfg.ForceShow = t.GetBool("Debug", "ForceShow", cfg.ForceShow);
@@ -190,6 +205,12 @@ IdleVariants = [""Idle"", ""Peek"", ""Stretch"", ""Wave""]
 IdleWeights = [6, 2, 1, 1]
 TimeJitter = 0.35
 GazeRadius = 0.35
+MotionSpeed = 1.0
+GestureIntensity = 1.0
+BreathSeconds = 3.9
+DoubleBlinkChance = 0.18
+EnableLegMotion = true
+EntranceSettleSeconds = 0.35
 PeekInSeconds = 0.65
 PeekHoldSeconds = 1.3
 EnterSeconds = 1.2

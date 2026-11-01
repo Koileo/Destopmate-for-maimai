@@ -40,7 +40,7 @@ namespace DesktopMateOnMaimai.Core
                 if (want3D && System.IO.File.Exists(portablePath))
                 {
                     var portable = PortableCharacter.Load(portablePath);
-                    stage.Driver = new RigDriver(portable);
+                    stage.Driver = new RigDriver(portable, cfg);
                     stage.Build3D(cfg, portable.Root, false);
                     return stage;
                 }
@@ -222,6 +222,10 @@ namespace DesktopMateOnMaimai.Core
 
         public void Tick(float dt)
         {
+            // 加载卡顿时 dt 会突然变大（0.5s 以上），不钳制的话动作会瞬移一节
+            if (dt <= 0f) return;
+            if (dt > 0.1f) dt = 0.1f;
+
             if (Driver is RigDriver rig) rig.Tick(dt);
             if (Is3D && _cam != null && Overlay.Go != null && Overlay.Go.activeInHierarchy)
                 _cam.Render();

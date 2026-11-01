@@ -6,7 +6,7 @@ using MelonLoader;
 using MelonLoader.Utils;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(DesktopMateOnMaimai.ModMain), "DesktopMate for maimai", "0.2.0", "Koileo")]
+[assembly: MelonInfo(typeof(DesktopMateOnMaimai.ModMain), "DesktopMate for maimai", "0.3.0", "Koileo")]
 [assembly: MelonGame("sega-interactive", "Sinmai")]
 
 namespace DesktopMateOnMaimai
