@@ -18,6 +18,12 @@ namespace DesktopMateOnMaimai.Core
         public ICharacterDriver Driver { get; private set; }
         public bool Is3D { get; private set; }
         public bool Ready => Driver != null && Driver.Ready;
+        public bool SupportsSeat => Driver is ICompanionDriver companion && companion.SupportsSeat;
+        public void SetSeated(bool seated)
+        {
+            _seated = seated;
+            if (Driver is ICompanionDriver companion) companion.SetSeated(seated);
+        }
 
         private RawImage _raw;
         private RawImage _image2D;
@@ -26,6 +32,7 @@ namespace DesktopMateOnMaimai.Core
         private GameObject _modelRoot;
         private GameObject _lightRoot;
         private int _layer;
+        private bool _seated;
 
         public static CharacterStage Create(OverlayCanvas oc, ModConfig cfg, string characterDir, string characterId)
         {
@@ -40,7 +47,7 @@ namespace DesktopMateOnMaimai.Core
                 if (want3D && System.IO.File.Exists(portablePath))
                 {
                     var portable = PortableCharacter.Load(portablePath);
-                    stage.Driver = new RigDriver(portable, cfg);
+                    stage.Driver = new RigDriver(portable, cfg, System.IO.Path.Combine(characterDir, "motion.dmm"));
                     stage.Build3D(cfg, portable.Root, false);
                     return stage;
                 }
@@ -68,8 +75,8 @@ namespace DesktopMateOnMaimai.Core
 
             // Closely layered clothing needs 24-bit depth; a 16-bit / 50-unit
             // frustum produces visible depth fighting on the imported mesh.
-            _rt = new RenderTexture(Mathf.Max(64, cfg.RenderTextureWidth), Mathf.Max(64, cfg.RenderTextureHeight), 24, RenderTextureFormat.ARGB32);
-            _rt.antiAliasing = 1;
+            _rt = new RenderTexture(Mathf.Clamp(cfg.RenderTextureWidth, 64, 4096), Mathf.Clamp(cfg.RenderTextureHeight, 64, 4096), 24, RenderTextureFormat.ARGB32);
+            _rt.antiAliasing = SystemInfo.supportsMultisampledTextures != 0 ? cfg.RenderTextureAntiAliasing : 1;
             _rt.filterMode = FilterMode.Bilinear;
             _rt.Create();
 
@@ -85,7 +92,7 @@ namespace DesktopMateOnMaimai.Core
             _cam.nearClipPlane = 0.01f;
             _cam.farClipPlane = 12f;
             _cam.allowHDR = false;
-            _cam.allowMSAA = false;
+            _cam.allowMSAA = _rt.antiAliasing > 1;
             _cam.transform.position = new Vector3(0f, 0f, -6f);
             _cam.transform.rotation = Quaternion.identity;
 
@@ -113,7 +120,6 @@ namespace DesktopMateOnMaimai.Core
 
             _raw = Overlay.CreateSurface("CharacterSurface");
             _raw.texture = _rt;
-            if (Overlay.HeadSurface != null) Overlay.HeadSurface.texture = _rt;
             Overlay.SetAspect((float)_rt.width / _rt.height);
             _raw.raycastTarget = false;
 
@@ -194,8 +200,40 @@ namespace DesktopMateOnMaimai.Core
             Is3D = false;
 
             _image2D = Overlay.CreateSurface("CharacterSprite");
-            Driver = new SpriteDriver(_image2D, Overlay.HeadSurface, System.IO.Path.Combine(characterDir, "sprites"));
+            Driver = new SpriteDriver(_image2D, null, System.IO.Path.Combine(characterDir, "sprites"));
             if (_image2D.texture != null) Overlay.SetAspect((float)_image2D.texture.width / _image2D.texture.height);
+        }
+
+        // ---------------- 入场表演 ----------------
+
+        public void ResetForEntrance()
+        {
+            if (Driver is RigDriver rig) rig.ResetPose();
+            Driver?.PlayFace("Default");
+        }
+
+        public void PlayEntrancePhase(EntrancePhase phase)
+        {
+            if (Driver == null) return;
+            if (phase == EntrancePhase.Peeking && Driver is RigDriver) Driver.PlayFace("Smile");
+            if (phase == EntrancePhase.Calling) Driver.PlayFace("Smile");
+            // 本地骨骼由 SampleEntrance 共用空间时钟；旧资源仍按阶段触发。
+            if (Driver is RigDriver) return;
+            switch (phase)
+            {
+                case EntrancePhase.Calling:
+                    Driver.PlayFace("Smile");
+                    Driver.SetTrigger("Call");
+                    break;
+                case EntrancePhase.Entering:
+                    Driver.SetTrigger("Enter");
+                    break;
+            }
+        }
+
+        public void SampleEntrance(float time, ModConfig cfg)
+        {
+            if (Driver is RigDriver rig) rig.SampleEntrance(time, cfg);
         }
 
         // ---------------- 每帧 ----------------
@@ -226,9 +264,29 @@ namespace DesktopMateOnMaimai.Core
             if (dt <= 0f) return;
             if (dt > 0.1f) dt = 0.1f;
 
-            if (Driver is RigDriver rig) rig.Tick(dt);
-            if (Is3D && _cam != null && Overlay.Go != null && Overlay.Go.activeInHierarchy)
-                _cam.Render();
+            // Keep the model far from game cameras between captures, but evaluate
+            // and render at the origin. At (20000, 20000) float precision rounds
+            // sub-millimeter bone motion into visible steps on a large overlay.
+            Vector3 parkedModel = _modelRoot != null ? _modelRoot.transform.position : Vector3.zero;
+            Vector3 parkedCamera = _cam != null ? _cam.transform.position : Vector3.zero;
+            try
+            {
+                if (_modelRoot != null) _modelRoot.transform.position = Vector3.zero;
+                if (_cam != null) _cam.transform.position = parkedCamera - parkedModel;
+                if (Driver is RigDriver rig) rig.Tick(dt);
+                if (_seated && Driver is RigDriver seatedRig && seatedRig.SeatHip != null && _cam != null)
+                {
+                    Vector3 viewport = _cam.WorldToViewportPoint(seatedRig.SeatHip.position);
+                    Overlay.SetSeatAnchor(new Vector2(viewport.x, viewport.y));
+                }
+                if (Is3D && _cam != null && Overlay.Go != null && Overlay.Go.activeInHierarchy)
+                    _cam.Render();
+            }
+            finally
+            {
+                if (_modelRoot != null) _modelRoot.transform.position = parkedModel;
+                if (_cam != null) _cam.transform.position = parkedCamera;
+            }
 
             if (Driver is SpriteDriver sp) sp.Tick(dt);
         }

@@ -77,6 +77,11 @@ namespace DesktopMateOnMaimai.Core.Motion
         private readonly MorphChannel _smile = new MorphChannel();
         private readonly MorphChannel _mouth = new MorphChannel();
         private readonly MorphChannel _squint = new MorphChannel();
+        private readonly MorphChannel _browSmile = new MorphChannel();
+        private readonly MorphChannel _lookLeft = new MorphChannel();
+        private readonly MorphChannel _lookRight = new MorphChannel();
+        private readonly MorphChannel _lookUp = new MorphChannel();
+        private readonly MorphChannel _lookDown = new MorphChannel();
 
         public bool Ready { get; private set; }
         public bool HasEyes { get; private set; }
@@ -196,7 +201,12 @@ namespace DesktopMateOnMaimai.Core.Motion
                     string name = raw.ToLowerInvariant();
                     var morph = new Morph { R = renderer, Index = i };
 
-                    if (name.Contains("blink"))
+                    if (name == "eyebrow_smile") _browSmile.Add(morph, true);
+                    else if (name == "lookat_left") _lookLeft.Add(morph, true);
+                    else if (name == "lookat_right") _lookRight.Add(morph, true);
+                    else if (name == "lookat_up") _lookUp.Add(morph, true);
+                    else if (name == "lookat_down") _lookDown.Add(morph, true);
+                    else if (name.Contains("blink"))
                         _blink.Add(morph, Matches(name, BlinkPreferred));
                     else if (name.Contains("smile") || name.Contains("joy"))
                         _smile.Add(morph, Matches(name, SmilePreferred));
@@ -286,10 +296,23 @@ namespace DesktopMateOnMaimai.Core.Motion
                 SetJoint(ref _eyeR, rt * qHead * qEye);
             }
 
+            ApplyFace(p);
+        }
+
+        public void ApplyFace(Pose p)
+        {
             _blink.Apply(p[Pose.Blink]);
-            _smile.Apply(p[Pose.Smile]);
-            _mouth.Apply(p[Pose.MouthOpen]);
+            _smile.Apply(p[Pose.Smile] * (1f - p[Pose.Blink]));
+            _browSmile.Apply(p[Pose.Smile] * 0.35f);
+            _mouth.Apply(Mathf.Max(p[Pose.MouthOpen], p[Pose.Smile] * 0.08f));
             _squint.Apply(p[Pose.Squint]);
+            // Miku provides directional eye morphs. They also work on the
+            // native-motion path where procedural bone gaze is not applied.
+            float yaw = p[Pose.EyeYaw] / 14f, pitch = p[Pose.EyePitch] / 9f;
+            _lookLeft.Apply(Mathf.Max(0f, yaw));
+            _lookRight.Apply(Mathf.Max(0f, -yaw));
+            _lookUp.Apply(Mathf.Max(0f, pitch));
+            _lookDown.Apply(Mathf.Max(0f, -pitch));
         }
 
         private void SetJoint(ref Joint joint, Quaternion worldRot)

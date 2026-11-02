@@ -1,202 +1,111 @@
 # DesktopMate for maimai
 
-把 Desktop-Mate 那种「动漫角色待在屏幕上」的展示，搬到舞萌（SDEZ / Sinmai）机台上：
-**系统闲置或等待刷卡时，角色先在游戏圆形区域外探头，停顿后身体进入圆内；登录后淡出，游玩/结算立即隐藏。**
+让 Desktop Mate 角色在舞萌闲置时陪伴玩家：**靠右站立、进入刷卡流程即淡出，登录后可选上屏坐姿，游玩与结算时淡出隐藏。** 角色显示时，触摸游戏圆屏可得到短动作或微笑回应。
 
-- 目标版本：SDEZ 1.70（Unity 2018.4.7f1 + MelonLoader 0.6.4，64 位）
-- 框架：MelonLoader + Harmony，独立 Mod，**不依赖、不修改 AquaMai**
-- 参考实现：`C:\Users\Koileo\Downloads\Desktop-Mate\Desktop Mate\`
+适用于 Windows x64、SDEZ 1.70 / Sinmai、Unity 2018.4.7f1、MelonLoader 0.6.4。独立运行，可与 AquaMai 共存。
 
-实际游戏截图（依次为圆外探头、身体进入、站立）：
+## 安装
 
-![实际进场三阶段](docs/images/entrance-check.png)
+下载发布 ZIP，退出游戏后将其中 `Mods` 合并至游戏的 `Package/Mods`。v0.5.3 起发布包默认附带 Miku 的 3D 模型、贴图和动作，首次安装即可使用。
 
-截图使用本机初音转换数据；角色模型不随源码或安装包分发。
-
-## 目录
-
-```
-├─ README.md
-├─ DesktopMateOnMaimai.csproj      # net472，引用游戏 DLL
-├─ build.bat                       # 构建 + 安装到 Mods
-├─ assets/DesktopMate.toml         # 默认配置（带注释）
-├─ src/
-│  ├─ ModMain.cs
-│  ├─ Config/ModConfig.cs, TinyToml.cs
-│  ├─ Core/CabinetWatcher.cs       # 机台状态监听（闲置/未登录）
-│  ├─ Core/OverlayCanvas.cs        # 画布/层级/布局/双屏
-│  ├─ Core/CharacterStage.cs       # 3D(RT+相机) / 2D(序列帧) 两条渲染通路
-│  ├─ Core/CharacterDriver.cs      # 动作原语抽象 + Animator/序列帧实现
-│  ├─ Core/RigDriver.cs            # 3D 本地角色驱动（接线动作运行时）
-│  ├─ Core/Motion/                 # 动作运行时：Pose / Clip / Binder / MotionRig / 缓动
-│  ├─ Core/IdleBrain.cs            # 待机大脑（状态机/抖动/表情三轨）
-│  ├─ Core/CharacterPresenter.cs   # 淡入淡出与滞回
-│  └─ Core/CharacterLoader.cs      # AssetBundle / 序列帧加载
-└─ docs/
-   ├─ 01-Desktop-Mate结构分析.md    # 可复用的结构、动画与待机逻辑
-   ├─ 02-舞萌适配说明.md            # 分辨率/层级/触发/配置/运行环境
-   ├─ 03-模块划分与实现要点.md      # 模块图、实现要点、里程碑、测试清单
-   ├─ 05-角色动作链优化.md          # 动作链结构、问题清单、优化设计与改动点
-   └─ 06-动作验收.md                # v0.3 本机游戏动作验收与截图
-```
-
-## 本机使用：Desktop Mate 初音
-
-本机 `miku.cb` 已转换为 `assets/local/miku-local/character.dmc` 和 PNG 贴图，构建时复制到游戏角色目录。它使用原模型、骨骼、蒙皮和表情，不是占位图；原始 Desktop Mate 文件保持不变。
+从源码构建并安装，需要 .NET SDK 8 和游戏目录中的 Unity / MelonLoader DLL：
 
 ```bat
-build.bat "D:\BaiduNetdiskDownload\SDEZ170_nobga_v2\SDEZ170\Package"
+build.bat "D:\maimaiHDD\SDEZ170\Package"
 ```
 
-安装后的配置保留以下设置，修改后重启游戏：
+脚本自动查找项目内 `.tools/dotnet`、用户目录或 PATH 中的 SDK，保留已有配置和角色。源码安装需先准备 `assets/local/miku-local` 转换产物；也会安装其他 `assets/local/<id>` 角色。
+
+```text
+Package/Mods/
+├─ DesktopMateOnMaimai.dll
+└─ DesktopMate/
+   ├─ DesktopMate.toml
+   └─ Characters/<id>/
+      ├─ character.dmc + PNG + motion.dmm   # 本地转换的 3D 角色
+      ├─ character.ab                      # 或 Unity 2018.4 AssetBundle
+      └─ sprites/idle_0.png ...            # 或 2D 透明序列帧
+```
+
+每个角色只需选择一种资源方式。原始 Desktop Mate `.cb` 不可直接加载，转换步骤见[角色资源与开发](docs/开发与角色转换.md)。
+
+## 显示与互动
+
+| 场景 | 角色表现 |
+| --- | --- |
+| 标题 / 招揽 | 首次等待 15 秒，在下屏右侧淡入；连续可展示页面切换不重复计时 |
+| 刷卡 / 登录流程 | 一进入流程就原地淡出，等待刷卡时也保持隐藏 |
+| 广告视频 | 默认隐藏，可通过 `ShowInCommercial` 开启 |
+| 登录后选曲等页面 | F8 切换上屏坐姿；无键盘可开启自动落座 |
+| 游玩 / 结算 | 默认立即开始淡出，完全隐藏后停止动作 |
+| 角色显示时触摸圆屏 | 站姿优先点头，缺少该动作时依次尝试挥手、换重心、思考；坐姿只微笑 |
+
+下屏保持大比例靠右站立，脚放到圆边下方，腿由圆形边界自然遮挡，避免在圆屏内露出悬空的脚。站姿补偿支撑脚高度和整体漂移；上屏坐姿放大并靠右显示。默认固定位置淡入，没有消息框或屏幕按钮。F9 开关角色显示。
+
+![v0.5.1 尺寸参考；v0.5.2 下屏站位已下移](docs/images/layout-size-v0.5.1.jpg)
+
+触摸接入游戏 `InputManager`，只读取按下事件，不消费或修改输入。默认冷却 8 秒；忙碌、进场、隐藏及游玩/结算时忽略触摸，不排队补播。`PlayerSlot=2P` 只响应 2P，其余选项跟随单角色的 1P 区域。接口不可用时自动退回普通陪伴。
+
+v0.5.4 默认在休息时保持固定站姿，停止站立循环、呼吸起伏、重心漂移和噪声微动；思考、叉腰等主动动作仍保留，结束后平滑回到固定站姿。保留眨眼、微笑、眉毛与嘴部变化，视线固定朝前，旧配置也不会再开启随机眼神。只从角色支持的动作中抽取，动作之间保留安静停顿。
+
+角色默认使用 1620×1620 离屏渲染、4× MSAA 与三线性贴图过滤，缩小显示以减轻大屏锯齿。只影响角色自身，不修改游戏全局画质；显卡不支持多重采样时自动关闭 MSAA。性能较弱的机台可将 RenderTextureWidth/Height 改回 1080，并将 RenderTextureAntiAliasing 改为 2 或 1。
+
+![角色边缘对比：左 1080 无抗锯齿，右 1620 与 4× MSAA；均放大三倍](docs/images/render-quality-v0.5.3.png)
+
+## 配置
+
+修改 `Package/Mods/DesktopMate/DesktopMate.toml` 后重启游戏。完整注释见[默认配置](assets/DesktopMate.toml)，布局与兼容说明见[舞萌适配说明](docs/02-舞萌适配说明.md)。以下字段合并到已有同名栏目：
 
 ```toml
 [Display]
 Renderer = "3D"
+RenderTextureWidth = 1620
+RenderTextureHeight = 1620
+RenderTextureAntiAliasing = 4
+PlayerSlot = "Auto"
 CircleEntrance = true
-CircleCenterX = 0.5
-CircleCenterY = -1
-CircleRadius = 0.5
-HeadFraction = 0.20
+AnimatedEntrance = false
+CircleHeightRadius = 1.65
+CircleResidentX = 0.46
+CircleResidentY = -1.12
+AllowUpperSeat = true
+UpperSeatOnLogin = false
+UpperSeatX = 0.78
+UpperSeatY = 0.48
+UpperSeatHeight = 0.52
 
 [Character]
 Id = "miku-local"
 YawDegrees = 180
+
+[Interaction]
+TouchEnabled = true
+TouchCooldownSeconds = 8
+
+[Animation]
+StandingIdleMotion = 0
+IdleVariants = ["Idle", "Think", "HandsOnHips", "Shift", "LookAround", "Nod", "Wave"]
+IdleWeights = [7, 2, 1, 1, 1, 1, 1]
 ```
 
-上面是相关字段示例，请合并到原有栏目，勿重复添加同名栏目。`build.bat` 保留已有配置。圆形模式忽略 `Anchor/OffsetX/OffsetY`，位置由圆心、半径与进场路径决定；`CircleEntrance=false` 可恢复角落模式。
+默认配置使用 `Renderer="3D"`、`Id="miku-local"`、`YawDegrees=180`，与发布包自带的 Miku 资源一致。上屏陪伴需要竖屏上方区域与角色真实坐姿。`UpperSeatOnLogin=true` 可在每轮登录后自动落座。`ReducedMotion=true` 保留固定站姿、坐姿、透明度过渡和微笑，减少额外手势。
 
-当前移植保留几何、骨骼、蒙皮和 23 个表情形变，使用游戏自带材质近似显示。原版 lilToon 光照、动作控制器、头发/裙摆物理尚未移植；
-待机动作由程序生成（v0.3）：
+从 v0.5.3 升级并保留旧配置时，将 `Animation.StandingIdleMotion` 改为 `0`，以关闭之前的 25% 站立摆动。`EnableLookAt` 与 `GazeRadius` 仅保留旧配置兼容，不再改变待机视线。
 
-- **三层动作运行时**：呼吸（非对称曲线、周期漂移）+ 重心漂移 + 噪声微动 常驻；手势层叠加 7 段关键帧动作；眨眼/视线/表情独立成层
-- **完整人形链**：胯、脊柱三节、颈、头、肩、上臂、前臂、手、大腿、小腿、脚、眼球共 22 个关节，都带过渡帧
-- **动作库**：`Wave`（预备→抬手→三次递减摆动→落臂过冲）、`Peek`、`Stretch`（含张嘴）、`Sigh`、`Shift`（重心转移）、`LookAround`、`Nod`
-- **进场四段式**：探头（倾斜过冲）→ 停顿 → 弧线进入 → 落定回弹
-- 动作细节说明见 [docs/05-角色动作链优化.md](docs/05-角色动作链优化.md)
+刷卡流程的隐藏规则也适用于旧配置中的 `ShowInEntryWaiting=true` 及调试 `ForceShow`。淡出默认 0.35 秒、淡入 0.6 秒；转场中途反向时沿用当前透明度，不重置角色姿势。
 
-## 无本地模型时：2D 测试
+升级时请同步上方尺寸参数，尤其 `CircleResidentY=-1.12`；安装脚本保留已有配置。固定站位使用 CircleResidentX/Y，Y 支持 -1.8~0，旧版进场的 CircleRestAngle/Radius 不控制固定站位。`CircleEntrance=false` 可使用自定义角落位置，这时需要自行确认遮挡。
 
-1. 构建（需要 .NET SDK 6/8）：
-
-   ```bat
-   build.bat D:\maimaiHDD\SDEZ170\Package
-   ```
-
-   `build.bat` 会自动识别安装在 `%LOCALAPPDATA%\Microsoft\dotnet-sdk-8` 的用户 SDK，也支持 PATH 里的 SDK。
-
-2. 通用默认配置使用 `Renderer="2D"`、`Id="placeholder"`。首次构建安装 6 帧简易测试图，只用于检查布局；换正式素材时替换以下文件：
-
-   ```
-   <Package>\Mods\DesktopMate\Characters\placeholder\sprites\
-       idle_0.png  idle_1.png  idle_2.png ...   # 待机
-       peek_0.png  ...                          # 可选
-       wave_0.png  ...                          # 可选
-       blink_0.png ...                          # 可选（眨眼）
-   ```
-
-   PNG 建议透明底、统一画布尺寸、高度 1000~1200 px（会按 `HeightPixels` 缩放）。
-
-3. 启动游戏。安装后的配置在 `<Package>\Mods\DesktopMate\DesktopMate.toml`；修改后重启生效。再次构建会保留已有配置和角色。
-
-4. 等到广告循环 15 秒后，角色出现；投币刷卡后淡出。
-
-## 其他 3D 资源
-
-原始 `.cb` 或解码后的 Unity 6 AssetBundle 不能交给 Unity 2018.4 直接加载。本机初音通过 `tools/read_character_bundle.py` → `tools/export_local_character.py` → `tools/validate_portable_character.py`，将数据转换为独立格式 `DMCHAR01` 后，由 `PortableCharacter` 重建。转换工具需要 Python、UnityPy、NumPy、cryptography 及 `.tools/asset-converter/keys.bin`；格式参考 [DesktopMateAssetDecryptor](https://github.com/Xyzstk/DesktopMateAssetDecryptor)。本地转换产物不随源码分发，其他角色尚未经过画面验证。
-
-离线转换示例（项目根目录运行，Python 3.12）：先执行 `python -m pip install -r tools/requirements.txt --target .tools/python`，再从上述格式参考仓库取得 `DesktopMateAssetDecryptor/keys.bin`，放到 `.tools/asset-converter/keys.bin`。
+## 验证与限制
 
 ```powershell
-python tools/read_character_bundle.py "C:\path\to\miku.cb" .tools/miku.unity3d --decode-only
-python tools/export_local_character.py .tools/miku.unity3d "C:\path\to\miku.cb" assets/local/miku-local
-python tools/validate_portable_character.py assets/local/miku-local/character.dmc
+dotnet build DesktopMateOnMaimai.csproj -c Release -p:MaimaiDir="D:\maimaiHDD\SDEZ170\Package"
+dotnet run --project tests/BehaviorChecks -c Release
+dotnet run --project tests/MotionChecks -c Release
 ```
 
-也支持自行导出的 Unity 2018.4 AssetBundle：
+无界面检查覆盖状态切换、换位、触摸冷却与降级、双玩家事件隔离、旧版进场安全带和动作连续性，不代替真实触摸板与画面验收。实机检查步骤见[安装与验证](docs/04-安装与验证.md)，旧版本记录保存在 [docs/archive](docs/archive)。
 
-1. 装 Unity **2018.4.7f1** + [UniVRM 0.63.x]（VRM 0.x）；
-2. 导入 VRM → 配 Animator（`Idle` / `Peek` / `Stretch` / `Wave` / `Blink` 这些 State 或 Trigger，名字与配置里的 `IdleVariants` 对齐）；
-3. 材质用 MToon（built-in RP）；
-4. 打 AssetBundle（目标平台 Windows x64），命名 `character.ab`；
-5. 放到 `<Package>\Mods\DesktopMate\Characters\<id>\character.ab`，配置 `Renderer = "3D"`。
+本地转换保留模型、骨骼、蒙皮、表情和主贴图，可使用已导出的 Humanoid 动作；原版着色器、动画控制器、布料与头发物理尚未完整移植。其他游戏版本、双玩家机台及真实刷卡/触摸板流程需现场确认。
 
-## 配置
-
-### 本机 Desktop Mate 角色批量转换
-
-本机已有的 `.cb` 角色包可以转换为本 Mod 读取的 `character.dmc`，不需要让 Unity 2018 直接加载 Unity 6 的资源包：
-
-```powershell
-python tools/convert_all_characters.py "<Desktop Mate目录>\DesktopMate_Data\StreamingAssets\AssetBundle" --install "<Package目录>\Mods\DesktopMate\Characters"
-```
-
-Python 环境需要 NumPy、cryptography，以及 `.tools/python` 下的 UnityPy 和 `.tools/asset-converter/keys.bin`。导出保存在 `assets/local/<角色包名小写>-local/`；每个角色只有在网格、骨骼权重、索引、表情数据、贴图和文件长度检查通过后才安装。完整结果见 `assets/local/conversion-report.json`，角色 ID 与切换说明见 `assets/local/CHARACTERS.md`。后续 `build.bat` 会复制所有已转换的本机角色。
-
-在游戏配置的 `[Display]` 下设置 `Renderer = "3D"`，在 `[Character]` 下设置角色 `Id`，例如 `sanrio_cinnamoroll-local`，重启游戏生效。
-
-转换保留默认启用的模型网格、骨骼、表情形变和主贴图；原版着色器使用简化材质替代，不包含原版动画控制器、布料或头发物理。当前动作驱动主要匹配初音的骨骼命名，其他角色的动作、表情及外观需要在游戏中确认。转换结果仅保存在本机。
-
-配置文件：`<Package>\Mods\DesktopMate\DesktopMate.toml`（首次运行自动生成）。
-全部字段释义见 `docs/02-舞萌适配说明.md` §5，默认模板见 `assets/DesktopMate.toml`。
-
-最常改的几个：
-
-| 想做的事 | 改哪 |
-|---|---|
-| 换角色 | `Character.Id` |
-| 调整圆周位置 | `Display.CircleCenterX` / `CircleCenterY` / `CircleRadius` |
-| 调整探头节奏 | `Animation.PeekInSeconds` / `PeekHoldSeconds` / `EnterSeconds` |
-| 使用角落位置 | `CircleEntrance=false` 后设置 `Anchor` / `OffsetX` / `OffsetY` |
-| 改大小 | `Display.Scale`、`Character.HeightPixels` |
-| 改透明度 | `Character.Opacity` |
-| 关掉某个触发 | `Trigger.ShowInAttract` / `ShowInEntryWaiting` / `ShowInCommercial` |
-| 待机动作节奏 | `Animation.IdleMinSeconds` / `IdleMaxSeconds` / `TimeJitter` |
-| 动作快慢 / 幅度 | `Animation.MotionSpeed` / `GestureIntensity` |
-| 呼吸节奏 | `Animation.BreathSeconds` |
-| 进场落定回弹 | `Animation.EntranceSettleSeconds` |
-| 关掉腿部微动 | `Animation.EnableLegMotion = false` |
-| 人物挡住 AquaMai 菜单 | `Display.SortingOrder` 调到 1000 以下 |
-
-## 状态说明
-
-| 机台状态 | 进程 | 表现 |
-|---|---|---|
-| 闲置/招揽 | `Process.AdvertiseProcess` | 显示 |
-| 广告视频段 | `Process.AdvertiseCommercial.AdvertiseCommercialProcess` | 由 `ShowInCommercial` 控制 |
-| 自动演示游玩 | `Process.AdvDemoProcess` | 显示 |
-| 未登录/待刷卡 | `Process.EntryProcess`（`ConfirmEntry` / `ConfirmFelica` / `WaitPartner` …） | 白名单内显示；未知/关闭的界面隐藏 |
-| 已登录/读盘中 | `DisplayPleaseWait` / `DoneEntry` | 淡出 |
-| 游玩/结算 | `Process.GameProcess` / `ResultProcess` | `HideDuringGame=true` 时立即隐藏并停止动画，优先于 `ForceShow` |
-
-## 构建与判定验证（2026-11-01）
-
-- 已使用 .NET SDK **8.0.427** 和本机 SDEZ170 Package 的 DLL 构建 Release：**0 警告、0 错误**（v0.3 动作运行时同样 0/0）。
-- 已运行 `build.bat`，安装 DLL 和本地转换的 `miku-local` 到本机 Package 的 `Mods`；安装配置选择 3D 初音。
-- 修复了 Harmony 类型名冲突、Unity 引用缺失、F9 关闭后无法再开启、广告开关无效，以及游玩/结算未立即隐藏的问题。
-- **20 项无界面判定检查通过**，覆盖显示延迟、转场进程干扰、探头时间线、资源失败隐藏、登录后隐藏、广告开关和游玩优先级。运行方式：
-
-  ```powershell
-  & "$env:LOCALAPPDATA\Microsoft\dotnet-sdk-8\dotnet.exe" run --project tests\BehaviorChecks\BehaviorChecks.csproj -c Release
-  ```
-
-这些检查使用生产判定与配置源码，替换了画布、动画与日志，不验证 Unity 渲染或触摸。`Debug.CaptureOnShow=true` 会在首次展示保存 `head-peek.png`、`body-enter.png`、`display-check.png` 及离屏人物图 `character-texture.png` 到 `Mods/DesktopMate/`。双屏、AquaMai 菜单和刷卡全流程仍需实机验收。
-
-另有 **27 项动作检查**，直接运行生产 `IdleBrain`、`MotionRig` 和动作库，覆盖单一 Idle 配置十分钟不插入手势、单一动作重复、落定边界连续性、不同落定时长，以及全部 7 段动作的完成状态和数值有效性：
-
-```powershell
-& "$env:LOCALAPPDATA\Microsoft\dotnet-sdk-8\dotnet.exe" run --project tests\MotionChecks\MotionChecks.csproj -c Release
-```
-
-这组检查仅替换 Unity 数学、驱动接口和日志，不验证骨骼绑定与渲染。落定曲线从零位移、零速度开始，避免进入落定段时突然下跳；单一动作配置不再被防重复逻辑替换为 `Shift`。
-
-v0.3 的动作链改造只改变 3D 本地角色的姿态计算与进场后段，`EntranceMotion` 的 `Reveal/Tilt` 端点语义未变，上述 20 项检查全部仍然通过。
-已在本机 1080×1600 游戏窗口运行 v0.3，检查单一 Idle 与全部 7 段动作，并修复 Stretch 手部超出取景的问题。最终采集 2,929 帧运行数据和 393 张人物图，七段动作均完整结束，无异常姿态值或贴图边缘裁切；原配置保留。验收方式、截图与范围见 [docs/06-动作验收.md](docs/06-动作验收.md)。关节方向的设计说明见 [docs/05](docs/05-角色动作链优化.md) §6。
-
-已在本机 1080×1600 游戏窗口验证上图三个阶段，修复正脸朝向和衣服深度闪点。本机安装配置等待 18 秒，使标题动画先完成；通用模板仍为 15 秒。`tools/package_release.ps1` 生成只含 DLL、配置、2D 测试图和安装说明的发布 ZIP；[安装说明](docs/04-安装与验证.md) 包含验证范围。
-
-## 注意
-
-- 引用其他游戏目录时，使用 `build.bat "<Package路径>"`，或给 `dotnet build` 传 `-p:MaimaiDir=...`。
-- Mod 只做显示，不碰判定、不碰输入、不改 `QualitySettings` / `RenderSettings`。
-- 角色素材版权自负；Desktop-Mate 的角色包请勿直接分发。
+发布包只附带默认 Miku 的运行时资源，其他角色需自行准备。第三方格式与依赖见 [THIRD_PARTY.md](THIRD_PARTY.md)。

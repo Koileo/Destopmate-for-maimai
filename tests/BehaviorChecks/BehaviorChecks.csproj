@@ -7,6 +7,7 @@
   <ItemGroup>
     <Compile Include="..\..\src\Config\*.cs" Link="Config\%(Filename)%(Extension)" />
     <Compile Include="..\..\src\Core\CabinetWatcher.cs" Link="CabinetWatcher.cs" />
+    <Compile Include="..\..\src\Core\TouchWatcher.cs" Link="TouchWatcher.cs" />
     <Compile Include="..\..\src\Core\CharacterPresenter.cs" Link="CharacterPresenter.cs" />
     <Compile Include="..\..\src\Core\EntranceMotion.cs" Link="EntranceMotion.cs" />
     <Reference Include="0Harmony">

@@ -19,6 +19,23 @@ namespace DesktopMateOnMaimai.Core
         private float _wantTimer;       // 条件满足/失效的持续计时
         private bool _showing;
         private float _motionTime;
+        private EntrancePhase _entrancePhase = EntrancePhase.Hidden;
+        private bool _entranceStarted;
+        private bool _upperSeat;
+        private bool _seatRequested;
+        private bool _hadLogin;
+
+        public bool CanChooseSeat => _cfg.AllowUpperSeat && CabinetState.CanChooseSeat &&
+            _stage != null && _stage.Ready && _stage.SupportsSeat && _overlay.HasUpperScreen;
+        public bool SeatRequested => _seatRequested;
+        public void ChooseUpperSeat(bool value)
+        {
+            if (CanChooseSeat)
+            {
+                _seatRequested = value;
+                _hadLogin = true;
+            }
+        }
 
         public CharacterPresenter(ModConfig cfg, OverlayCanvas overlay, CharacterStage stage)
         {
@@ -30,37 +47,54 @@ namespace DesktopMateOnMaimai.Core
 
         public bool IsShowing => _showing;
 
+        public bool ReactToTouch()
+        {
+            if (!_showing || _alpha <= 0.002f || _entrancePhase != EntrancePhase.Inside ||
+                CabinetState.IsGameOrResult || !(_upperSeat ? CanChooseSeat : CabinetState.ShouldShow(_cfg)))
+                return false;
+            return _brain != null && _brain.ReactToTouch();
+        }
+
         public void Tick(float dt)
         {
             if (_cfg == null || _overlay == null) return;
+            if (!CabinetState.UserLoggedIn) _seatRequested = false;
+            else if (!_hadLogin) _seatRequested = _cfg.UpperSeatOnLogin;
+            _hadLogin = CabinetState.UserLoggedIn;
 
-            if (_cfg.HideDuringGame && CabinetState.IsGameOrResult)
-            {
-                _showing = false;
-                _wantTimer = 0f;
-                _alpha = 0f;
-                _motionTime = 0f;
-                _overlay.SetAlpha(0f);
-                _overlay.SetVisible(false);
-                return;
-            }
+            bool wantUpper = CanChooseSeat && _seatRequested;
+            bool relocating = wantUpper != _upperSeat;
 
-            bool cond = _stage != null && _stage.Ready && CabinetState.ShouldShow(_cfg) &&
-                (_cfg.ForceShow || CabinetState.PhaseSeconds >= _cfg.ShowDelaySeconds);
+            bool mustHide = CabinetState.EntryMustHide ||
+                (_cfg.HideDuringGame && CabinetState.IsGameOrResult);
+
+            bool cond = !mustHide && !relocating && _stage != null && _stage.Ready &&
+                (wantUpper || (CabinetState.ShouldShow(_cfg) &&
+                (_cfg.ForceShow || _entranceStarted || CabinetState.PhaseSeconds >= _cfg.ShowDelaySeconds)));
 
             if (cond != _showing)
             {
                 _wantTimer += dt;
                 float need = cond ? 0.05f :
-                    (CabinetState.EntryMustHide ? 0f : _cfg.HideDelaySeconds);
+                    (relocating || CabinetState.UserLoggedIn || mustHide ? 0f : _cfg.HideDelaySeconds);
                 if (_wantTimer >= need)
                 {
                     _showing = cond;
                     _wantTimer = 0f;
                     if (_showing)
                     {
-                        _motionTime = 0f;
-                        _brain?.Reset();
+                        // 广告/标题切换即使已经全透明，也属于同一轮招揽。
+                        // 只在首次展示或一次玩家会话结束后重新编排进场。
+                        if (!_entranceStarted)
+                        {
+                            _entranceStarted = true;
+                            _motionTime = _cfg.AnimatedEntrance && !_upperSeat && !_cfg.ReducedMotion ? 0f : EntranceMotion.Duration(_cfg);
+                            _entrancePhase = EntrancePhase.Hidden;
+                            _stage?.ResetForEntrance();
+                            _stage?.SetSeated(_upperSeat);
+                            _brain?.Reset();
+                            _brain?.SetSeated(_upperSeat);
+                        }
                         if (_cfg.LogStateChanges)
                             MelonLogger.Msg("[DesktopMate] 进入展示 (" + CabinetState.Phase + ")");
                     }
@@ -80,12 +114,27 @@ namespace DesktopMateOnMaimai.Core
                 ? (_cfg.FadeInSeconds <= 0.01f ? 100f : 1f / _cfg.FadeInSeconds)
                 : (_cfg.FadeOutSeconds <= 0.01f ? 100f : 1f / _cfg.FadeOutSeconds);
 
-            _alpha = MoveTowards(_alpha, target, speed * dt);
+            // 卡顿不能把整段淡入/淡出压成一次跳变；反向时从当前透明度继续。
+            float motionDt = Math.Max(0f, Math.Min(0.1f, dt));
+            _alpha = MoveTowards(_alpha, target, speed * motionDt);
+            // Relocate only while transparent; rapid choices can safely retarget.
+            if (relocating && _alpha <= 0.002f)
+            {
+                _overlay.SetAlpha(0f);
+                _upperSeat = wantUpper;
+                _overlay.SetUpperSeat(_upperSeat);
+                _stage?.ResetForEntrance();
+                _stage?.SetSeated(_upperSeat);
+                _brain?.Reset();
+                _brain?.SetSeated(_upperSeat);
+                _entranceStarted = false;
+            }
             // 进场时间线用钳制过的 dt：卡顿一帧不该让角色瞬移半程
-            float motionDt = dt > 0.1f ? 0.1f : dt;
-            _motionTime = _showing
-                ? Math.Min(EntranceMotion.Duration(_cfg), _motionTime + motionDt)
-                : Math.Max(0f, _motionTime - motionDt * EntranceMotion.Duration(_cfg) / Math.Max(0.05f, _cfg.FadeOutSeconds));
+            if (_showing)
+                _motionTime = Math.Min(EntranceMotion.Duration(_cfg), _motionTime + motionDt);
+            // 隐藏只冻结空间并淡出，不倒放 Reveal，不把角色拉回圆外。
+            UpdateEntrancePerformance();
+            if (!_upperSeat) _stage?.SampleEntrance(_motionTime, _cfg);
             _overlay.SetEntrance(_motionTime, _cfg);
 
             _overlay.SetAlpha(_alpha * _cfg.Opacity);
@@ -93,9 +142,26 @@ namespace DesktopMateOnMaimai.Core
 
             if (_alpha > 0.002f)
             {
-                _brain?.Tick(dt);
-                _stage?.Tick(dt);
+                // 入场期间只播编排好的 Call / Enter，随机待机不能抢动作。
+                if (_showing && _entrancePhase == EntrancePhase.Inside) _brain?.Tick(motionDt);
+                _stage?.Tick(motionDt);
             }
+            if (!_showing && _alpha <= 0.002f && mustHide)
+            {
+                _entranceStarted = false;
+                _entrancePhase = EntrancePhase.Hidden;
+                _motionTime = 0f;
+            }
+        }
+
+        private void UpdateEntrancePerformance()
+        {
+            if (!_showing) return;
+            EntrancePhase phase = EntranceMotion.PhaseAt(_motionTime, _cfg);
+            if (phase == _entrancePhase) return;
+            _entrancePhase = phase;
+            _stage?.PlayEntrancePhase(phase);
+            if (phase == EntrancePhase.Inside) { _brain?.Reset(); _brain?.SetSeated(_upperSeat); }
         }
 
         private static float MoveTowards(float cur, float target, float maxDelta)

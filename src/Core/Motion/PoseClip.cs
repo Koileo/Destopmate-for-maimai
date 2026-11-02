@@ -12,7 +12,7 @@ namespace DesktopMateOnMaimai.Core.Motion
     }
 
     /// <summary>
-    /// 一段关键帧动作。采样按「左邻键的缓动」插值：
+    /// 一段关键帧动作。采样按「目标键的缓动」插值：
     /// 每段自己的 ease 决定了是「快速起步」还是「缓慢落定」，
     /// 这就是补出来的过渡帧，而不是在两个姿态之间线性硬插。
     /// </summary>
@@ -121,6 +121,9 @@ namespace DesktopMateOnMaimai.Core.Motion
         {
             if (Clips.Count > 0) return;
             Add(Wave());
+            Add(RimPeek());
+            Add(Call());
+            Add(Enter());
             Add(Peek());
             Add(Stretch());
             Add(Sigh());
@@ -268,6 +271,273 @@ namespace DesktopMateOnMaimai.Core.Motion
             keys.Add(K(2.90f, Ease.Linear, null));
 
             return Make("Wave", 2.90f, 0.18f, 0.40f, keys.ToArray());
+        }
+
+        private static PoseClip RimPeek()
+        {
+            return Make("RimPeek", 0.72f, 0.10f, 0f,
+                K(0f, Ease.Linear, null),
+                K(0.22f, Ease.Smooth, p =>
+                {
+                    p[Pose.ChestYaw] = -3f;
+                    p[Pose.HeadYaw] = -7f;
+                    p[Pose.HeadPitch] = 2f;
+                    p[Pose.ArmFwdL] = 12f;
+                    p[Pose.ElbowL] = 24f;
+                }),
+                K(0.50f, Ease.Smooth, p =>
+                {
+                    p[Pose.ArmDownL] = 55f;
+                    p[Pose.ArmFwdL] = 18f;
+                    p[Pose.ElbowL] = 30f;
+                    p[Pose.WristL] = 6f;
+                    p[Pose.ShoulderLiftL] = 2f;
+                    p[Pose.ChestRoll] = -1.5f;
+                    p[Pose.HeadYaw] = -4f;
+                    p[Pose.HeadRoll] = -3f;
+                }),
+                K(0.72f, Ease.Smooth, p =>
+                {
+                    p[Pose.ArmDownL] = 58f;
+                    p[Pose.ArmFwdL] = 18f;
+                    p[Pose.ElbowL] = 28f;
+                    p[Pose.WristL] = 5f;
+                    p[Pose.ShoulderLiftL] = 1f;
+                    p[Pose.HeadRoll] = -2f;
+                    p[Pose.HeadYaw] = -2f;
+                }));
+        }
+
+        // ---------------- 边缘主动招呼 ----------------
+        // 只在入场 Calling 阶段播放：看向玩家、扶住边缘、小幅挥手并张嘴招呼。
+        // 左手撑住、右手动作和头部回应三者错拍，避免全身像一块板同时摆动。
+        private static PoseClip Call()
+        {
+            return Make("Call", 2.35f, 0.16f, 0.32f,
+                K(0f, Ease.Linear, p =>
+                {
+                    p[Pose.ArmDownL] = 58f;
+                    p[Pose.ArmFwdL] = 18f;
+                    p[Pose.ElbowL] = 28f;
+                    p[Pose.WristL] = 5f;
+                    p[Pose.ShoulderLiftL] = 1f;
+                    p[Pose.HeadRoll] = -2f;
+                    p[Pose.HeadYaw] = -2f;
+                }),
+                K(0.16f, Ease.InQuad, p =>
+                {
+                    p[Pose.ArmDownR] = 80f;
+                    p[Pose.ElbowR] = 15f;
+                    p[Pose.ShoulderLiftR] = -3.5f;
+                    p[Pose.ArmDownL] = 61f;
+                    p[Pose.ArmFwdL] = 16f;
+                    p[Pose.ElbowL] = 25f;
+                    p[Pose.HipsShiftX] = -0.003f;
+                    p[Pose.HeadRoll] = -1.5f;
+                    p[Pose.HeadPitch] = 1.2f;
+                    p[Pose.MouthOpen] = 0.08f;
+                }),
+                K(0.43f, Ease.OutCubic, p =>
+                {
+                    p[Pose.ArmDownR] = 3f;
+                    p[Pose.ArmFwdR] = 14f;
+                    p[Pose.ArmTwistR] = 15f;
+                    p[Pose.ElbowR] = 51f;
+                    p[Pose.WristR] = -12f;
+                    p[Pose.WristSideR] = -8f;
+                    p[Pose.ShoulderLiftR] = 7f;
+                    p[Pose.ArmDownL] = 58f;
+                    p[Pose.ArmFwdL] = 18f;
+                    p[Pose.ElbowL] = 28f;
+                    p[Pose.WristL] = 5f;
+                    p[Pose.HipsShiftX] = 0.007f;
+                    p[Pose.HipsRoll] = -0.6f;
+                    p[Pose.Spine2Roll] = 0.8f;
+                    p[Pose.ChestYaw] = -3f;
+                    p[Pose.HeadYaw] = -5f;
+                    p[Pose.HeadRoll] = -3f;
+                    p[Pose.HeadPitch] = -1.5f;
+                    p[Pose.MouthOpen] = 0.22f;
+                    p[Pose.KneeL] = 2.5f;
+                }),
+                K(0.62f, Ease.OutBack, p =>
+                {
+                    p[Pose.ArmDownR] = -3f;
+                    p[Pose.ArmFwdR] = 14f;
+                    p[Pose.ArmTwistR] = 15f;
+                    p[Pose.ElbowR] = 55f;
+                    p[Pose.WristR] = -19f;
+                    p[Pose.WristSideR] = 8f;
+                    p[Pose.ShoulderLiftR] = 8.5f;
+                    p[Pose.ArmDownL] = 58f;
+                    p[Pose.ArmFwdL] = 18f;
+                    p[Pose.ElbowL] = 28f;
+                    p[Pose.HipsShiftX] = 0.007f;
+                    p[Pose.ChestYaw] = -3.5f;
+                    p[Pose.HeadYaw] = -6f;
+                    p[Pose.HeadRoll] = -3.5f;
+                    p[Pose.MouthOpen] = 0.12f;
+                }),
+                K(0.86f, Ease.InOutSine, p =>
+                {
+                    p[Pose.ArmDownR] = 1f;
+                    p[Pose.ArmFwdR] = 14f;
+                    p[Pose.ElbowR] = 48f;
+                    p[Pose.WristR] = 12f;
+                    p[Pose.WristSideR] = -13f;
+                    p[Pose.ShoulderLiftR] = 7.5f;
+                    p[Pose.ArmDownL] = 59f;
+                    p[Pose.ArmFwdL] = 18f;
+                    p[Pose.ElbowL] = 27f;
+                    p[Pose.HipsShiftX] = 0.007f;
+                    p[Pose.HeadYaw] = -5f;
+                    p[Pose.HeadRoll] = -2.5f;
+                    p[Pose.MouthOpen] = 0.05f;
+                }),
+                K(1.08f, Ease.InOutSine, p =>
+                {
+                    p[Pose.ArmDownR] = -2f;
+                    p[Pose.ArmFwdR] = 14f;
+                    p[Pose.ElbowR] = 53f;
+                    p[Pose.WristR] = -16f;
+                    p[Pose.WristSideR] = 10f;
+                    p[Pose.ShoulderLiftR] = 8f;
+                    p[Pose.ArmDownL] = 58f;
+                    p[Pose.ArmFwdL] = 18f;
+                    p[Pose.ElbowL] = 28f;
+                    p[Pose.HipsShiftX] = 0.007f;
+                    p[Pose.HeadYaw] = -6f;
+                    p[Pose.HeadRoll] = -3f;
+                    p[Pose.MouthOpen] = 0.18f;
+                }),
+                K(1.30f, Ease.InOutSine, p =>
+                {
+                    p[Pose.ArmDownR] = 1f;
+                    p[Pose.ArmFwdR] = 13f;
+                    p[Pose.ElbowR] = 49f;
+                    p[Pose.WristR] = 8f;
+                    p[Pose.WristSideR] = -9f;
+                    p[Pose.ShoulderLiftR] = 7f;
+                    p[Pose.ArmDownL] = 59f;
+                    p[Pose.ArmFwdL] = 17f;
+                    p[Pose.ElbowL] = 27f;
+                    p[Pose.HipsShiftX] = 0.006f;
+                    p[Pose.HeadYaw] = -4.5f;
+                    p[Pose.HeadRoll] = -2f;
+                    p[Pose.MouthOpen] = 0.06f;
+                }),
+                K(1.53f, Ease.InOutCubic, p =>
+                {
+                    p[Pose.ArmDownR] = 17f;
+                    p[Pose.ArmFwdR] = 11f;
+                    p[Pose.ElbowR] = 42f;
+                    p[Pose.WristR] = -3f;
+                    p[Pose.ShoulderLiftR] = 4f;
+                    p[Pose.ArmDownL] = 62f;
+                    p[Pose.ArmFwdL] = 15f;
+                    p[Pose.ElbowL] = 25f;
+                    p[Pose.HeadYaw] = -2f;
+                    p[Pose.HeadPitch] = 3.5f;
+                    p[Pose.NeckPitch] = 1f;
+                    p[Pose.MouthOpen] = 0.02f;
+                }),
+                K(1.82f, Ease.InOutCubic, p =>
+                {
+                    p[Pose.ArmDownR] = 65f;
+                    p[Pose.ArmFwdR] = 7f;
+                    p[Pose.ElbowR] = 19f;
+                    p[Pose.ShoulderLiftR] = 0f;
+                    p[Pose.ArmDownL] = 70f;
+                    p[Pose.ArmFwdL] = 7f;
+                    p[Pose.ElbowL] = 13f;
+                    p[Pose.HipsShiftX] = 0.002f;
+                    p[Pose.HeadPitch] = -1f;
+                }),
+                K(2.08f, Ease.OutQuad, p =>
+                {
+                    p[Pose.ArmDownR] = 77f;
+                    p[Pose.ElbowR] = 8f;
+                    p[Pose.ShoulderLiftR] = -2.5f;
+                    p[Pose.ArmDownL] = 75f;
+                    p[Pose.ElbowL] = 10f;
+                    p[Pose.HeadRoll] = 0.5f;
+                }),
+                K(2.35f, Ease.Linear, null));
+        }
+
+        // ---------------- 沿圆周跨入 ----------------
+        // 位移由 CircleEntrancePath 负责，这里只演身体：先移重心，再迈步，手臂反向跟随。
+        private static PoseClip Enter()
+        {
+            return Make("Enter", 1.55f, 0.12f, 0.28f,
+                K(0f, Ease.Linear, null),
+                K(0.24f, Ease.InQuad, p =>
+                {
+                    p[Pose.HipsShiftX] = -0.008f;
+                    p[Pose.HipsRoll] = -1.2f;
+                    p[Pose.Spine2Roll] = 0.8f;
+                    p[Pose.ChestRoll] = 0.7f;
+                    p[Pose.HeadRoll] = -1.8f;
+                    p[Pose.ThighFwdR] = 5f;
+                    p[Pose.KneeR] = 11f;
+                    p[Pose.AnkleR] = 2f;
+                    p[Pose.ArmDownL] = 77f;
+                    p[Pose.ArmDownR] = 70f;
+                    p[Pose.ElbowL] = 12f;
+                }),
+                K(0.58f, Ease.InOutCubic, p =>
+                {
+                    p[Pose.HipsShiftX] = 0.012f;
+                    p[Pose.HipsDropY] = 0.006f;
+                    p[Pose.HipsRoll] = 1.4f;
+                    p[Pose.HipsYaw] = -2.5f;
+                    p[Pose.Spine2Roll] = -1f;
+                    p[Pose.ChestRoll] = -0.8f;
+                    p[Pose.ChestYaw] = 3.5f;
+                    p[Pose.HeadYaw] = -2f;
+                    p[Pose.HeadRoll] = 1.2f;
+                    p[Pose.ThighFwdL] = 8f;
+                    p[Pose.KneeL] = 13f;
+                    p[Pose.AnkleL] = 3f;
+                    p[Pose.ThighFwdR] = -2f;
+                    p[Pose.KneeR] = 3f;
+                    p[Pose.ArmFwdL] = 12f;
+                    p[Pose.ArmFwdR] = -3f;
+                    p[Pose.ArmDownL] = 72f;
+                    p[Pose.ArmDownR] = 77f;
+                    p[Pose.ElbowR] = 13f;
+                }),
+                K(0.91f, Ease.InOutSine, p =>
+                {
+                    p[Pose.HipsShiftX] = 0.009f;
+                    p[Pose.HipsDropY] = -0.003f;
+                    p[Pose.HipsRoll] = 0.8f;
+                    p[Pose.Spine2Roll] = -0.5f;
+                    p[Pose.ChestYaw] = 1.5f;
+                    p[Pose.HeadRoll] = 0.7f;
+                    p[Pose.ThighFwdL] = 3f;
+                    p[Pose.KneeL] = 5f;
+                    p[Pose.ThighFwdR] = 3f;
+                    p[Pose.KneeR] = 7f;
+                    p[Pose.ArmFwdL] = 6f;
+                    p[Pose.ArmFwdR] = 1f;
+                    p[Pose.ArmDownL] = 75f;
+                    p[Pose.ArmDownR] = 75f;
+                }),
+                K(1.20f, Ease.OutQuad, p =>
+                {
+                    p[Pose.HipsShiftX] = -0.002f;
+                    p[Pose.HipsDropY] = 0.002f;
+                    p[Pose.HeadPitch] = 1.2f;
+                    p[Pose.HeadRoll] = -0.5f;
+                    p[Pose.KneeL] = 5.5f;
+                    p[Pose.KneeR] = 5f;
+                    p[Pose.ArmDownL] = 73f;
+                    p[Pose.ArmDownR] = 76f;
+                    p[Pose.ElbowL] = 10f;
+                    p[Pose.ElbowR] = 10f;
+                }),
+                K(1.55f, Ease.Linear, null));
         }
 
         // ---------------- 探头打量 ----------------

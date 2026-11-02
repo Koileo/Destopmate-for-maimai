@@ -100,6 +100,8 @@ namespace DesktopMateOnMaimai.Core
                     if (!texture.LoadImage(File.ReadAllBytes(Path.Combine(directory, textureFile))))
                         throw new InvalidDataException("Character texture could not be loaded");
                     texture.wrapMode = TextureWrapMode.Clamp;
+                    texture.filterMode = FilterMode.Trilinear;
+                    texture.anisoLevel = 4;
                     material.mainTexture = texture;
                 }
                 materials[i] = material;

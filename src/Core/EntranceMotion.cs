@@ -6,7 +6,7 @@ namespace DesktopMateOnMaimai.Core
     /// <summary>进场姿态。</summary>
     internal struct EntrancePose
     {
-        /// <summary>0 = 完全在窗外，1 = 头探进圆内，2 = 身体整个进来。</summary>
+        /// <summary>0 = 完全在圆外，1 = 头探到圆边，2 = 身体整个进来。</summary>
         public float Reveal;
 
         /// <summary>整体倾斜（度），探头时歪头，进来后归零。</summary>
@@ -15,18 +15,26 @@ namespace DesktopMateOnMaimai.Core
         /// <summary>落定时的下沉量（像素），配合回弹使用。</summary>
         public float Dip;
 
-        /// <summary>进入途中的横向弧线权重（0..1），让路径不是直线。</summary>
+        /// <summary>进入途中的切向弧线权重（0..1），让路径贴合圆周。</summary>
         public float Arc;
+
+        // 上半身先露出，扶边和招手才不会被“只显示头部”的裁切吞掉。
+        public float BodyReveal;
+    }
+
+    internal enum EntrancePhase
+    {
+        Hidden,
+        Peeking,
+        Calling,
+        Entering,
+        Settling,
+        Inside
     }
 
     /// <summary>
-    /// 进场时间线：探头 → 停顿 → 身体进入 → 落定回弹。
-    ///
-    /// 与旧版的差别：
-    ///   · 探头用 OutCubic（快起步、缓收住），不再是匀速到位再硬停
-    ///   · 歪头用 OutBack，带一点点过冲再回来，符合"探头"的惯性
-    ///   · 身体进来后新增 settle 段：整体下沉一下再弹回，占位符不再"啪"地定格
-    ///   · 进入路径带一点横向弧度，看起来是从桌边绕进来，不是直线平移
+    /// 单向进场时间线：探头 → 主动招呼 → 沿圆周进入 → 落定 → 屏内常驻。
+    /// 时间只前进，不因普通隐藏而倒退；消失由透明度负责，不再倒放空间路径。
     /// </summary>
     internal static class EntranceMotion
     {
@@ -35,29 +43,50 @@ namespace DesktopMateOnMaimai.Core
             return cfg.PeekInSeconds + cfg.PeekHoldSeconds + cfg.EnterSeconds + Math.Max(0f, cfg.EntranceSettleSeconds);
         }
 
+        public static EntrancePhase PhaseAt(float time, ModConfig cfg)
+        {
+            if (time <= 0f) return EntrancePhase.Hidden;
+            // Presenter 恰好钳制到总时长；逐段减法的浮点误差不能让状态永远卡在 Settling。
+            if (time >= Duration(cfg)) return EntrancePhase.Inside;
+            if (time < cfg.PeekInSeconds) return EntrancePhase.Peeking;
+            time -= cfg.PeekInSeconds;
+            if (time < cfg.PeekHoldSeconds) return EntrancePhase.Calling;
+            time -= cfg.PeekHoldSeconds;
+            if (time < cfg.EnterSeconds) return EntrancePhase.Entering;
+            time -= cfg.EnterSeconds;
+            return time < Math.Max(0f, cfg.EntranceSettleSeconds) ? EntrancePhase.Settling : EntrancePhase.Inside;
+        }
+
         public static EntrancePose Sample(float time, ModConfig cfg)
         {
             if (time < cfg.PeekInSeconds)
             {
                 float t = Clamp01(cfg.PeekInSeconds <= 0.001f ? 1f : time / cfg.PeekInSeconds);
-                return new EntrancePose { Reveal = OutCubic(t), Tilt = cfg.PeekTiltDegrees * OutBack(t) };
+                float s = Smoother(t);
+                return new EntrancePose { Reveal = s, Tilt = cfg.PeekTiltDegrees * s,
+                    BodyReveal = 0.48f * Smoother(Clamp01((t - 0.35f) / 0.65f)) };
             }
             time -= cfg.PeekInSeconds;
 
             if (time < cfg.PeekHoldSeconds)
-                return new EntrancePose { Reveal = 1f, Tilt = cfg.PeekTiltDegrees };
+                return new EntrancePose { Reveal = 1f, Tilt = cfg.PeekTiltDegrees, BodyReveal = 0.48f };
 
             time -= cfg.PeekHoldSeconds;
 
             if (time < cfg.EnterSeconds)
             {
                 float e = Clamp01(cfg.EnterSeconds <= 0.001f ? 1f : time / cfg.EnterSeconds);
-                float s = InOutCubic(e);
+                float s = Smoother(e);
+                float arc = (float)Math.Sin(Math.PI * e);
+                // 平方包络在两端位移和速度都为零；普通 sin 会在终点造成轻微径向回退。
+                arc *= arc;
                 return new EntrancePose
                 {
                     Reveal = 1f + s,
-                    Tilt = cfg.PeekTiltDegrees * (1f - s),
-                    Arc = (float)Math.Sin(Math.PI * e)
+                    // 身体沿切线先入，随后逐渐转正；不是整个人直挺挺地平移。
+                    Tilt = cfg.PeekTiltDegrees * (1f - s) - 4f * arc,
+                    Arc = arc,
+                    BodyReveal = 0.48f + 0.52f * s
                 };
             }
             time -= cfg.EnterSeconds;
@@ -76,7 +105,8 @@ namespace DesktopMateOnMaimai.Core
             {
                 Reveal = 2f,
                 Tilt = -1.8f * wobble,
-                Dip = 7f * sink
+                Dip = 7f * sink,
+                BodyReveal = 1f
             };
         }
 
@@ -85,24 +115,124 @@ namespace DesktopMateOnMaimai.Core
             return v < 0f ? 0f : (v > 1f ? 1f : v);
         }
 
-        private static float OutCubic(float t)
+        private static float Smoother(float t)
         {
-            float u = 1f - t;
-            return 1f - u * u * u;
+            return t * t * t * (t * (t * 6f - 15f) + 10f);
+        }
+    }
+
+    /// <summary>相对圆心、以圆半径为 1 的头部位置。</summary>
+    internal struct CirclePathPose
+    {
+        public float HeadX;
+        public float HeadY;
+        public float Radius;
+        public float AngleDegrees;
+    }
+
+    /// <summary>
+    /// 圆周路径：探头点位于圆外右侧；进入时角度与径向距离同时收束，
+    /// 形成沿圆周切入的弧线。常驻点落在右上安全带，脚底高于底部提示带。
+    /// </summary>
+    internal static class CircleEntrancePath
+    {
+        private const float PeekRadius = 1.015f;
+
+        public static CirclePathPose Sample(EntrancePose pose, ModConfig cfg, float heightRadius, float aspect = 0.7f)
+        {
+            float restX, restY;
+            CircleSafeLayout.RestFoot(cfg, heightRadius, aspect, out restX, out restY);
+            restX = CircleSafeLayout.FitRestX(restX, restY, heightRadius, aspect);
+            float restHeadY = restY + heightRadius * (1f - cfg.HeadFraction * 0.5f);
+            float finalRadius = (float)Math.Sqrt(restX * restX + restHeadY * restHeadY);
+            float finalAngle = (float)Math.Atan2(restHeadY, restX) * 180f / (float)Math.PI;
+
+            float radius, angle;
+            if (pose.Reveal <= 1f)
+            {
+                // 起始点连同整张图都在圆外，Reveal 只负责把头送到边缘。
+                float hiddenRadius = PeekRadius + 0.55f + heightRadius * 0.9f;
+                radius = Lerp(hiddenRadius, PeekRadius, pose.Reveal);
+                angle = cfg.CirclePeekAngle;
+            }
+            else
+            {
+                float t = Clamp01(pose.Reveal - 1f);
+                float delta = finalAngle - cfg.CirclePeekAngle;
+                if (delta > 180f) delta -= 360f;
+                else if (delta < -180f) delta += 360f;
+                angle = cfg.CirclePeekAngle + delta * t + 4f * pose.Arc;
+                // 径向只减不增，切向弧度由角度承担；这样既绕圆周进入，
+                // 又不会在末尾出现任何把角色往圆外带的小回退。
+                radius = Lerp(PeekRadius, finalRadius, t);
+            }
+
+            float radians = angle * (float)Math.PI / 180f;
+            return new CirclePathPose
+            {
+                HeadX = (float)Math.Cos(radians) * radius,
+                HeadY = (float)Math.Sin(radians) * radius,
+                Radius = radius,
+                AngleDegrees = angle
+            };
         }
 
-        private static float InOutCubic(float t)
+        private static float Lerp(float a, float b, float t)
         {
-            if (t < 0.5f) return 4f * t * t * t;
-            float u = -2f * t + 2f;
-            return 1f - u * u * u * 0.5f;
+            return a + (b - a) * t;
         }
 
-        private static float OutBack(float t)
+        private static float Clamp01(float v)
         {
-            const float c = 1.70158f;
-            float u = t - 1f;
-            return 1f + (c + 1f) * u * u * u + c * u * u;
+            return v < 0f ? 0f : (v > 1f ? 1f : v);
+        }
+    }
+
+    /// <summary>
+    /// SDEZ 标题/招揽页的右侧空白带。以整张人物图（含动作中的手、头发）计算，
+    /// 不只检查脚底；右边和顶部保留圆周余量，中央和底部提示带始终让空。
+    /// </summary>
+    internal static class CircleSafeLayout
+    {
+        public const float Left = 0.48f;
+        private const float RestLeft = Left + 0.025f; // 整体倾斜/落定时的横向余量
+        public const float Bottom = -0.28f;
+        private const float RestBottom = Bottom + 0.06f; // 为落定下沉预留空间（小窗口同样适用）
+        private const float Top = 0.80f;
+        private const float RimMargin = 0.025f;
+
+        public static float FitHeight(float requested, float aspect)
+        {
+            aspect = Math.Max(0.1f, aspect);
+            float low = 0f, high = Math.Max(0f, Math.Min(requested, Top - RestBottom));
+            // 单调求解：整个矩形必须装得进右侧安全带与圆的交集。
+            for (int i = 0; i < 24; i++)
+            {
+                float h = (low + high) * 0.5f;
+                float edgeY = Math.Max(Math.Abs(RestBottom), Math.Abs(RestBottom + h));
+                float right = (float)Math.Sqrt(Math.Max(0f, 1f - edgeY * edgeY)) - RimMargin;
+                if (h * aspect <= right - RestLeft) low = h;
+                else high = h;
+            }
+            return low;
+        }
+
+        public static void RestFoot(ModConfig cfg, float height, float aspect, out float x, out float y)
+        {
+            float angle = cfg.CircleRestAngle * (float)Math.PI / 180f;
+            x = (float)Math.Cos(angle) * cfg.CircleRestRadius;
+            float right = RestLeft + height * aspect + RimMargin;
+            float edge = (float)Math.Sqrt(Math.Max(0f, 1f - right * right));
+            y = Math.Max(Math.Max(RestBottom, -edge), Math.Min(Math.Min(Top, edge) - height,
+                (float)Math.Sin(angle) * cfg.CircleRestRadius));
+        }
+
+        public static float FitRestX(float x, float y, float height, float aspect)
+        {
+            float halfWidth = height * aspect * 0.5f;
+            float edgeY = Math.Max(Math.Abs(y), Math.Abs(y + height));
+            float right = (float)Math.Sqrt(Math.Max(0f, 1f - edgeY * edgeY)) - RimMargin;
+            return Math.Max(RestLeft + halfWidth, Math.Min(right - halfWidth, x));
         }
     }
 }

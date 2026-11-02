@@ -13,16 +13,16 @@ namespace DesktopMateOnMaimai.Core
     ///   2) 时间抖动轨：AddRandomFloat / SetRandomFloat —— 给每次停留时长加随机扰动，避免机械感
     ///   3) 表情轨：BlinkData(眨眼间隔) / LookAtSoftClip(视线软钳制) / PlayFace(表情切换)
     ///
-    /// 机台没有鼠标可跟随，所以视线轨改为「在玩家位置附近固视 + 软钳制」。
+    /// 机台侧固定朝向玩家，不再随机移动视线。
     ///
     /// 与旧版的三处差别：
-    ///   · 大动作之间插入微动作（点头/重心转移/张望/叹气），12 秒的空档不再"石化"
+    ///   · 只从已配置且驱动支持的动作中选择，动作之间留出安静停顿
     ///   · 同一个动作不连续出现两次，避免复读感
-    ///   · 眨眼交给 RigDriver 的状态机；视线改成"固视 1~3 秒再跳"，而不是连续平移
+    ///   · 微笑独立调度；眨眼交给驱动，视线始终朝前
     /// </summary>
     internal sealed class IdleBrain
     {
-        public enum Mood { Idle, Peek, Stretch, Wave, Shift, LookAround, Nod, Sigh, Sleep }
+        public enum Mood { Idle, Peek, Stretch, Wave, Shift, LookAround, Nod, Sigh, Sleep, Think, HandsOnHips }
 
         private readonly ModConfig _cfg;
         private readonly ICharacterDriver _driver;
@@ -32,33 +32,69 @@ namespace DesktopMateOnMaimai.Core
         private Mood _lastMood = Mood.Idle;
         private float _gestureTimer;
         private float _blinkTimer;
-        private float _gazeTimer;
-        private Vector3 _gazeTarget;
-        private Vector3 _gazeSmooth;
+        private bool _seated;
+        private Mood[] _combo;
+        private int _comboStep;
+        private int _lastCombo = -1;
+        private float _touchCooldown;
+        private float _touchFaceTime;
+        private float _expressionTimer;
 
         public Mood CurrentMood { get { return _mood; } }
+        // Touch is feedback, not an extra idle phrase. Never queue or interrupt clips.
+        public bool ReactToTouch()
+        {
+            if (!_cfg.TouchEnabled || _driver == null || !_driver.Ready || _driver.Busy || _touchCooldown > 0f)
+                return false;
+            _touchCooldown = _cfg.TouchCooldownSeconds;
+            _combo = null;
+            _comboStep = 0;
+            if (!_seated && !_cfg.ReducedMotion)
+            {
+                foreach (var mood in new[] { Mood.Nod, Mood.Wave, Mood.Shift, Mood.Think })
+                {
+                    if (!Supported(mood)) continue;
+                    Apply(mood);
+                    _lastMood = mood;
+                    _gestureTimer = GestureSeconds(mood) / Mathf.Max(0.2f, _cfg.MotionSpeed) + 0.8f;
+                    break;
+                }
+            }
+            _driver.PlayFace("Smile");
+            _touchFaceTime = 1.2f;
+            return true;
+        }
+
+        public void SetSeated(bool seated)
+        {
+            _seated = seated;
+            if (seated) _driver?.SetBool("Idle", true);
+        }
 
         public IdleBrain(ModConfig cfg, ICharacterDriver driver)
         {
             _cfg = cfg;
             _driver = driver;
             _blinkTimer = Rand(2.5f, 5.5f);
-            _gazeTimer = Rand(0.8f, 2.4f);
             _gestureTimer = Rand(1.2f, 3.5f);
+            _expressionTimer = Rand(4f, 7f);
         }
 
         public void Reset()
         {
+            _combo = null;
+            _comboStep = 0;
+            _touchFaceTime = 0f;
+            _expressionTimer = Rand(4f, 7f);
+            _seated = false;
             _mood = Mood.Idle;
             _lastMood = Mood.Idle;
-            _gazeSmooth = Vector3.zero;
-            _gazeTarget = new Vector3(0f, 0f, 0.4f);
             _gestureTimer = Rand(1.2f, 3.5f);
-            _gazeTimer = Rand(0.8f, 2.4f);
             if (_driver != null)
             {
                 _driver.SetBool("Idle", true);
                 _driver.SetBool("Sleep", false);
+                _driver.PlayFace("Default");
             }
         }
 
@@ -66,10 +102,25 @@ namespace DesktopMateOnMaimai.Core
         {
             if (_driver == null || !_driver.Ready) return;
             dt = Mathf.Clamp(dt, 0f, 0.1f);
+            _touchCooldown = Mathf.Max(0f, _touchCooldown - dt);
+            if (_touchFaceTime > 0f)
+            {
+                _touchFaceTime -= dt;
+                if (_touchFaceTime <= 0f) _driver.PlayFace("Default");
+            }
+            // Facial life is independent of the gesture lottery, including
+            // native characters and seated/reduced-motion companionship.
+            _expressionTimer -= dt;
+            if (_expressionTimer <= 0f && _touchFaceTime <= 0f && !_driver.Busy)
+            {
+                _driver.PlayFace("Smile");
+                _touchFaceTime = 2.2f;
+                _expressionTimer = Rand(10f, 18f);
+            }
 
             // ---- 状态机轨 ----
-            _gestureTimer -= dt;
-            if (_gestureTimer <= 0f)
+            if (!_seated && !_cfg.ReducedMotion) _gestureTimer -= dt;
+            if (!_seated && !_cfg.ReducedMotion && _gestureTimer <= 0f)
             {
                 // 上一段动作还没收尾就等一会儿，绝不打断
                 if (_driver.Busy) _gestureTimer = 0.35f;
@@ -87,59 +138,35 @@ namespace DesktopMateOnMaimai.Core
                 }
             }
 
-            // ---- 表情轨：视线固视 + 软钳制 ----
-            if (_cfg.EnableLookAt)
-            {
-                _gazeTimer -= dt;
-                if (_gazeTimer <= 0f)
-                {
-                    _gazeTarget = PickGaze();
-                    // 固视时长 0.9~3.2s：人眼是"跳-停-跳"，不是匀速平移
-                    _gazeTimer = Rand(0.9f, 3.2f);
-                }
-                // 仅做很短的平滑（0.12s），保留跳视的锐度
-                float k = 1f - Mathf.Exp(-dt / 0.12f);
-                _gazeSmooth = Vector3.Lerp(_gazeSmooth, _gazeTarget, k);
-                _driver.LookAt(_gazeSmooth);
-            }
-        }
-
-        private Vector3 PickGaze()
-        {
-            float radius = Mathf.Max(0.05f, _cfg.GazeRadius);
-            // 六成时间看玩家（略偏中心），四成时间看向一侧（像是被别处吸引）
-            if (_rng.NextDouble() < 0.6)
-                return new Vector3(
-                    Rand(-0.45f, 0.45f) * radius,
-                    Rand(-0.45f, 0.30f) * radius,
-                    0.4f);
-            return new Vector3(
-                Rand(-1.5f, 1.5f) * radius,
-                Rand(-0.7f, 0.4f) * radius,
-                0.4f);
+            // Keep attention on the player, also when an older config still
+            // enables random looking. Explicitly clear any previous gaze offset.
+            _driver.LookAt(new Vector3(0f, 0f, 0.4f));
         }
 
         // ---------------- 手势调度 ----------------
 
         private void BeginGesture()
         {
-            Mood mood = PickWeighted();
-
-            // 抽到 Idle 时并非什么都不做：多数时间用微动作填满空档，
-            // 这是"细腻"与"像雕像"的分界线。只配了 Idle 一个变体时视为"只想站桩"，不插微动作。
-            bool microAllowed = _cfg.IdleVariants != null && _cfg.IdleVariants.Length > 1;
-            if (mood == Mood.Idle && microAllowed)
+            if (_combo != null)
             {
-                double r = _rng.NextDouble();
-                if (r < 0.30) mood = Mood.Shift;
-                else if (r < 0.55) mood = Mood.LookAround;
-                else if (r < 0.72) mood = Mood.Nod;
-                else if (r < 0.84) mood = Mood.Sigh;
+                Apply(_combo[_comboStep++]);
+                _gestureTimer = GestureSeconds(_mood) / Mathf.Max(0.2f, _cfg.MotionSpeed) + 0.8f;
+                if (_comboStep >= _combo.Length)
+                {
+                    _combo = null;
+                    _gestureTimer += Rand(_cfg.IdleMinSeconds, Mathf.Max(_cfg.IdleMinSeconds, _cfg.IdleMaxSeconds));
+                }
+                return;
             }
+            Mood mood = PickWeighted();
+            if (_cfg.EnableActionCombos && mood != Mood.Idle && TryCombo()) { BeginGesture(); return; }
 
-            // 单一变体尊重用户选择；Idle 可以连续保持，不应被防重复逻辑变成手势。
-            if (microAllowed && mood == _lastMood && mood != Mood.Idle && mood != Mood.Shift)
-                mood = Mood.Shift;
+            // A quiet pause is intentional. Do not fill it with unconfigured
+            // swaying, or turn an unsupported action into another silent idle.
+            if (Configured(Mood.Idle) && mood == _lastMood && mood != Mood.Idle)
+                mood = Mood.Idle;
+
+            if (!Supported(mood)) mood = Mood.Idle;
 
             Apply(mood);
             _lastMood = mood;
@@ -149,8 +176,48 @@ namespace DesktopMateOnMaimai.Core
             _gestureTimer = GestureSeconds(mood) + baseTime * (1f + Rand(-_cfg.TimeJitter, _cfg.TimeJitter));
             if (_gestureTimer < 0.8f) _gestureTimer = 0.8f;
 
-            // 做动作时把视线收回玩家身上
-            _gazeTarget = new Vector3(Rand(-0.3f, 0.3f) * _cfg.GazeRadius, 0f, 0.4f);
+        }
+
+        private bool Supported(Mood mood)
+        {
+            return mood == Mood.Idle || !(_driver is ICompanionDriver companion) || companion.SupportsGesture(mood.ToString());
+        }
+
+        private bool TryCombo()
+        {
+            // Short phrases, separated by quiet pauses; never interrupt a clip.
+            Mood[][] phrases = {
+                new[] { Mood.Wave, Mood.Nod },
+                new[] { Mood.Think, Mood.Shift },
+                new[] { Mood.HandsOnHips, Mood.Think },
+                new[] { Mood.Shift, Mood.HandsOnHips },
+                new[] { Mood.LookAround, Mood.Nod }
+            };
+            var available = new System.Collections.Generic.List<int>();
+            for (int i = 0; i < phrases.Length; i++)
+            {
+                bool valid = true;
+                foreach (Mood mood in phrases[i])
+                {
+                    if (!Supported(mood) || !Configured(mood)) { valid = false; break; }
+                }
+                if (valid) available.Add(i);
+            }
+            if (available.Count > 1) available.Remove(_lastCombo);
+            if (available.Count == 0) return false;
+            _lastCombo = available[_rng.Next(available.Count)];
+            _combo = phrases[_lastCombo];
+            _comboStep = 0;
+            return true;
+        }
+
+        private bool Configured(Mood mood)
+        {
+            if (_cfg.IdleVariants == null) return false;
+            for (int i = 0; i < _cfg.IdleVariants.Length; i++)
+                if (Parse(_cfg.IdleVariants[i]) == mood && (_cfg.IdleWeights == null ||
+                    i >= _cfg.IdleWeights.Length || _cfg.IdleWeights[i] > 0f)) return true;
+            return false;
         }
 
         private static float GestureSeconds(Mood mood)
@@ -165,6 +232,8 @@ namespace DesktopMateOnMaimai.Core
                 case Mood.Nod: return 1.0f;
                 case Mood.Sigh: return 2.9f;
                 case Mood.Sleep: return 3.0f;
+                case Mood.Think: return 2.7f;
+                case Mood.HandsOnHips: return 5.8f;
                 default: return 0f;
             }
         }
@@ -177,13 +246,15 @@ namespace DesktopMateOnMaimai.Core
 
             float total = 0f;
             for (int i = 0; i < variants.Length; i++)
-                total += i < weights.Length ? Mathf.Max(0f, weights[i]) : 1f;
+                if (Supported(Parse(variants[i])))
+                    total += weights != null && i < weights.Length ? Mathf.Max(0f, weights[i]) : 1f;
             if (total <= 0f) return Mood.Idle;
 
             float r = (float)_rng.NextDouble() * total;
             for (int i = 0; i < variants.Length; i++)
             {
-                float w = i < weights.Length ? Mathf.Max(0f, weights[i]) : 1f;
+                if (!Supported(Parse(variants[i]))) continue;
+                float w = weights != null && i < weights.Length ? Mathf.Max(0f, weights[i]) : 1f;
                 if (r < w) return Parse(variants[i]);
                 r -= w;
             }
@@ -202,6 +273,8 @@ namespace DesktopMateOnMaimai.Core
                 case "nod": return Mood.Nod;
                 case "sigh": return Mood.Sigh;
                 case "sleep": return Mood.Sleep;
+                case "think": return Mood.Think;
+                case "handsonhips": return Mood.HandsOnHips;
                 default: return Mood.Idle;
             }
         }
@@ -209,6 +282,7 @@ namespace DesktopMateOnMaimai.Core
         private void Apply(Mood m)
         {
             _mood = m;
+            if (_touchFaceTime <= 0f) _driver.PlayFace("Default");
 
             // 所有变体用 Trigger 切换，避免 Bool 组合导致状态卡死
             _driver.SetBool("Idle", m == Mood.Idle);
@@ -246,6 +320,14 @@ namespace DesktopMateOnMaimai.Core
                 case Mood.Nod:
                     _driver.SetTrigger("Nod");
                     _driver.PlayFace("Smile");
+                    break;
+                case Mood.Think:
+                    _driver.SetTrigger("Think");
+                    break;
+                case Mood.HandsOnHips:
+                    _driver.SetTrigger("HandsOnHips");
+                    _driver.PlayFace("Smile");
+                    _touchFaceTime = 2.2f;
                     break;
             }
         }

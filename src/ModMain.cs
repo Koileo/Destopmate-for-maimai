@@ -6,7 +6,7 @@ using MelonLoader;
 using MelonLoader.Utils;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(DesktopMateOnMaimai.ModMain), "DesktopMate for maimai", "0.3.0", "Koileo")]
+[assembly: MelonInfo(typeof(DesktopMateOnMaimai.ModMain), "DesktopMate for maimai", "0.5.4", "Koileo")]
 [assembly: MelonGame("sega-interactive", "Sinmai")]
 
 namespace DesktopMateOnMaimai
@@ -38,6 +38,7 @@ namespace DesktopMateOnMaimai
 
             _harmony = new HarmonyLib.Harmony("DesktopMateOnMaimai");
             CabinetWatcher.Install(_harmony);
+            if (Cfg.TouchEnabled) TouchWatcher.Install(_harmony);
 
             LoggerInstance.Msg("DesktopMate for maimai 已载入；角色目录: " + Path.Combine(root, "Characters"));
         }
@@ -56,6 +57,7 @@ namespace DesktopMateOnMaimai
         public override void OnUpdate()
         {
             HandleHotkey();
+            bool touched = TouchWatcher.Consume(Cfg.PlayerSlot);
             if (!_enabled) return;
 
             float dt = Time.unscaledDeltaTime;
@@ -73,6 +75,7 @@ namespace DesktopMateOnMaimai
                 Relayout();
 
             _presenter?.Tick(dt);
+            if (touched) _presenter?.ReactToTouch();
             if (_captureIndex < 3 && Cfg.CaptureOnShow && _presenter != null && _presenter.IsShowing)
             {
                 _captureTime += dt;
@@ -97,9 +100,15 @@ namespace DesktopMateOnMaimai
 
         private void HandleHotkey()
         {
-            if (string.IsNullOrEmpty(Cfg?.HotkeyToggle)) return;
+            if (Cfg == null) return;
             try
             {
+                if (Enum.TryParse(Cfg.HotkeySeat, true, out KeyCode seatKey) && Input.GetKeyDown(seatKey) &&
+                    _presenter != null && _presenter.CanChooseSeat)
+                {
+                    _presenter.ChooseUpperSeat(!_presenter.SeatRequested);
+                    LoggerInstance.Msg("上屏陪伴已" + (_presenter.SeatRequested ? "选择" : "取消") + "（淡出后移动）");
+                }
                 if (!Enum.TryParse(Cfg.HotkeyToggle, true, out KeyCode key)) return;
                 if (Input.GetKeyDown(key))
                 {

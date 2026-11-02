@@ -1,3 +1,5 @@
+> 历史设计与验收归档；当前行为和配置以 README 及默认配置为准。
+
 # Desktop-Mate 结构、动画与待机逻辑分析
 
 > 对象：`C:\Users\Koileo\Downloads\Desktop-Mate\Desktop Mate\`

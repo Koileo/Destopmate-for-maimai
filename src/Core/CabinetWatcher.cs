@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using MelonLoader;
@@ -16,6 +15,7 @@ namespace DesktopMateOnMaimai.Core
         Entry,       // 已投币/待刷卡 → 登录流程
         Game,        // 谱面游玩
         Result,      // 结算
+        Selection,   // 登录后选曲等安全页面
         Other
     }
 
@@ -33,15 +33,6 @@ namespace DesktopMateOnMaimai.Core
         public static string EntryScreen = "";
         public static bool UserLoggedIn;
 
-        /// <summary>Entry 流程中「还没刷卡 / 还没进游戏」的界面集合（白名单式收敛）。</summary>
-        private static readonly HashSet<string> EntryWaitingScreens = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "ConfirmEntry", "ConfirmFelica", "ConfirmAccessCode", "DisplayAccessCodeQR",
-            "DisplayFelicaQR", "DispFelicaSiteAndQR", "ConfirmFelicaSite", "NoticeFelicaRegistration",
-            "ConfirmExistingAime", "ConfirmExistingAimeContinue", "ConfirmInheritAime", "WaitPartner",
-            "NoticeDataMigration", "ConfirmGuest"
-        };
-
         internal static void Reset()
         {
             Phase = CabinetPhase.Unknown;
@@ -57,9 +48,13 @@ namespace DesktopMateOnMaimai.Core
             if (IsAuxiliary(typeName)) return;
             ProcessName = typeName ?? "";
             PhaseSeconds = 0f;
-            UserLoggedIn = false;
+            CabinetPhase next = Map(typeName);
+            // A login belongs to the player session, not to one Process object.
+            if (next == CabinetPhase.Entry || next == CabinetPhase.Attract ||
+                next == CabinetPhase.Commercial || next == CabinetPhase.Demo || next == CabinetPhase.Boot)
+                UserLoggedIn = false;
             EntryScreen = "";
-            Phase = Map(typeName);
+            Phase = next;
 
             if (ModMain.Cfg != null && ModMain.Cfg.LogStateChanges)
                 MelonLogger.Msg("[DesktopMate] 进程切换 -> " + ProcessName + " (" + Phase + ")");
@@ -91,6 +86,8 @@ namespace DesktopMateOnMaimai.Core
             if (n.IndexOf("Advertise", StringComparison.OrdinalIgnoreCase) >= 0) return CabinetPhase.Attract;
 
             if (n.IndexOf("Entry", StringComparison.OrdinalIgnoreCase) >= 0) return CabinetPhase.Entry;
+            if (n == "MusicSelectProcess" || n == "ModeSelectProcess" || n == "TicketSelectProcess" ||
+                n == "CharaSelectProcess" || n == "CourseSelectProcess") return CabinetPhase.Selection;
             if (n.IndexOf("GameProcess", StringComparison.OrdinalIgnoreCase) >= 0) return CabinetPhase.Game;
             if (n.IndexOf("Result", StringComparison.OrdinalIgnoreCase) >= 0) return CabinetPhase.Result;
             if (n.IndexOf("PowerOn", StringComparison.OrdinalIgnoreCase) >= 0) return CabinetPhase.Boot;
@@ -111,6 +108,8 @@ namespace DesktopMateOnMaimai.Core
         public static bool ShouldShow(Config.ModConfig cfg)
         {
             if (cfg == null) return false;
+            // 整个刷卡流程都留给游戏；旧配置或调试开关也不能重新显示大角色。
+            if (EntryMustHide) return false;
             if (cfg.HideDuringGame && IsGameOrResult) return false;
             if (cfg.ForceShow) return true;
 
@@ -123,9 +122,7 @@ namespace DesktopMateOnMaimai.Core
                 case CabinetPhase.Demo:
                     return cfg.ShowInAttract;
                 case CabinetPhase.Entry:
-                    if (!cfg.ShowInEntryWaiting) return false;
-                    if (UserLoggedIn) return false;
-                    return EntryWaitingScreens.Contains(EntryScreen);
+                    return false;
                 case CabinetPhase.Game:
                 case CabinetPhase.Result:
                 case CabinetPhase.Boot:
@@ -138,8 +135,9 @@ namespace DesktopMateOnMaimai.Core
 
         public static bool IsGameOrResult => Phase == CabinetPhase.Game || Phase == CabinetPhase.Result;
 
-        public static bool EntryMustHide => Phase == CabinetPhase.Entry &&
-            (UserLoggedIn || EntryScreen == "DoneEntry" || EntryScreen == "DisplayPleaseWait");
+        public static bool CanChooseSeat => UserLoggedIn && Phase == CabinetPhase.Selection;
+
+        public static bool EntryMustHide => Phase == CabinetPhase.Entry;
     }
 
     /// <summary>

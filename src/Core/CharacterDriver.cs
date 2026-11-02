@@ -7,6 +7,14 @@ using UnityEngine.UI;
 
 namespace DesktopMateOnMaimai.Core
 {
+    // Optional capability boundary: never advertise a sitting pose the asset lacks.
+    internal interface ICompanionDriver
+    {
+        bool SupportsSeat { get; }
+        bool SupportsGesture(string name);
+        void SetSeated(bool seated);
+    }
+
     /// <summary>
     /// 人物驱动器：待机逻辑（IdleBrain）只通过这个接口说话，
     /// 因此 3D(Animator/VRM) 与 2D(序列帧) 两种实现对上层完全透明。
@@ -66,7 +74,11 @@ namespace DesktopMateOnMaimai.Core
 
         public void SetTrigger(string name)
         {
-            if (_anim != null && _triggers.Contains(name)) _anim.SetTrigger(name);
+            if (_anim == null) return;
+            // 自制 AssetBundle 没有新动作时沿用旧资源，不让主动招呼静默丢失。
+            if (name == "Call" && !_triggers.Contains(name) && _triggers.Contains("Wave")) name = "Wave";
+            if (name == "Enter" && !_triggers.Contains(name) && _triggers.Contains("Shift")) name = "Shift";
+            if (_triggers.Contains(name)) _anim.SetTrigger(name);
         }
 
         public void SetBool(string name, bool value)
@@ -104,7 +116,7 @@ namespace DesktopMateOnMaimai.Core
     /// 适合作为「没有可用 3D 资源」时的默认方案。
     /// 目录结构：Characters/&lt;id&gt;/sprites/&lt;clip&gt;_0.png, _1.png, ...
     /// </summary>
-    internal sealed class SpriteDriver : ICharacterDriver
+    internal sealed class SpriteDriver : ICharacterDriver, ICompanionDriver
     {
         private readonly RawImage _image, _head;
         private readonly Dictionary<string, Sprite[]> _clips = new Dictionary<string, Sprite[]>(StringComparer.OrdinalIgnoreCase);
@@ -114,12 +126,21 @@ namespace DesktopMateOnMaimai.Core
         private int _frame;
         private Vector3 _lookBase;
         private string _idleClip;
+        private string _standingClip;
         private bool _playingOneShot;
         private float _oneShotTimer;
 
         public bool Ready => _image != null && _clips.Count > 0;
         public bool ManagesBlink => false;
         public bool Busy => _playingOneShot;
+        public bool SupportsSeat => _clips.ContainsKey("Sit");
+        public bool SupportsGesture(string name) => _clips.ContainsKey(name);
+        public void SetSeated(bool seated)
+        {
+            _idleClip = seated && SupportsSeat ? "Sit" : _standingClip;
+            _playingOneShot = false;
+            Play(_idleClip);
+        }
 
         public SpriteDriver(RawImage image, RawImage head, string spriteDir)
         {
@@ -153,6 +174,7 @@ namespace DesktopMateOnMaimai.Core
             if (_clips.Count > 0)
             {
                 _idleClip = FirstClipName();
+                _standingClip = _idleClip;
                 Play(_idleClip);
             }
         }
@@ -216,8 +238,10 @@ namespace DesktopMateOnMaimai.Core
 
         public void SetTrigger(string name)
         {
-            if (!string.IsNullOrEmpty(name) && !string.Equals(name, "Idle", StringComparison.OrdinalIgnoreCase))
-                PlayOnce(name);
+            if (string.IsNullOrEmpty(name) || string.Equals(name, "Idle", StringComparison.OrdinalIgnoreCase)) return;
+            if (name == "Call" && !_clips.ContainsKey(name) && _clips.ContainsKey("Wave")) name = "Wave";
+            if (name == "Enter" && !_clips.ContainsKey(name) && _clips.ContainsKey("Shift")) name = "Shift";
+            PlayOnce(name);
         }
 
         public void SetBool(string name, bool value)

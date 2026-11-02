@@ -47,6 +47,12 @@ namespace MelonLoader
 
 namespace DesktopMateOnMaimai.Core
 {
+    internal interface ICompanionDriver
+    {
+        bool SupportsSeat { get; }
+        bool SupportsGesture(string name);
+        void SetSeated(bool seated);
+    }
     internal interface ICharacterDriver
     {
         bool Ready { get; }
@@ -61,18 +67,30 @@ namespace DesktopMateOnMaimai.Core
         void Dispose();
     }
 
-    internal sealed class RecordingDriver : ICharacterDriver
+    internal sealed class RecordingDriver : ICharacterDriver, ICompanionDriver
     {
         public readonly List<string> Triggers = new List<string>();
         public bool Ready => true;
         public bool ManagesBlink => true;
-        public bool Busy => false;
+        public bool IsBusy;
+        public bool Busy => IsBusy;
+        public bool SupportsSeat => true;
+        public string[] Allowed;
+        public bool SupportsGesture(string name) => Allowed == null || Array.Exists(Allowed, n => n == name);
+        public void SetSeated(bool seated) { }
         public int GazeUpdates;
+        public bool GazeStayedForward = true;
         public void SetTrigger(string name) => Triggers.Add(name);
         public void SetBool(string name, bool value) { }
         public void SetFloat(string name, float value) { }
-        public void PlayFace(string name) { }
-        public void LookAt(UnityEngine.Vector3 point) => GazeUpdates++;
+        public string LastFace;
+        public readonly List<string> Faces = new List<string>();
+        public void PlayFace(string name) { LastFace = name; Faces.Add(name); }
+        public void LookAt(UnityEngine.Vector3 point)
+        {
+            GazeUpdates++;
+            GazeStayedForward &= point.x == 0f && point.y == 0f && point.z == 0.4f;
+        }
         public void SetSpeed(float speed) { }
         public void Dispose() { }
     }

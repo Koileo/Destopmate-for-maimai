@@ -9,11 +9,13 @@
 Enabled = true
 ## 热键开关（需要接键盘；机台无键盘时请只用 Enabled）
 HotkeyToggle = "F9"
+## 登录后的选曲页面切换上屏坐姿；无键盘时可设置 UpperSeatOnLogin=true
+HotkeySeat = "F8"
 
 [Display]
 ## 渲染方式: "3D" 优先加载 character.dmc；也支持 Unity 2018.4.7f1 AssetBundle
 ##           "2D" 使用 sprites 目录下的 PNG 序列帧（零依赖，推荐先跑通这个）
-Renderer = "2D"
+Renderer = "3D"
 ## 画布缩放参考；实际布局读取 Screen.width/height，不代表窗口必须是此尺寸
 ReferenceWidth = 1920
 ReferenceHeight = 1080
@@ -28,62 +30,89 @@ OffsetY = 0
 Scale = 1.0
 ## 双屏机台时把角色放在哪一侧: Auto | 1P | 2P | Both
 PlayerSlot = "Auto"
-## 3D 模式的离屏渲染分辨率（越小越省 GPU；1080 高足够）
-RenderTextureWidth = 900
-RenderTextureHeight = 1080
+## 角色独立离屏渲染：默认 1.5 倍原分辨率，缩小显示时减轻大屏边缘锯齿
+RenderTextureWidth = 1620
+RenderTextureHeight = 1620
+## 角色专用 MSAA: 1=关闭，2/4/8=采样数；不修改游戏全局画质
+RenderTextureAntiAliasing = 4
 ## 角色专用渲染层，需与游戏占用的层错开（8~31）
 CharacterLayer = 30
-## 圆周登场：先露头，停顿，再让身体进入圆内。身体的几何裁切不写游戏 stencil。
+## 使用游戏圆形屏幕裁切；全身以固定大小和站位淡入。
 CircleEntrance = true
+## 旧版探头/绕圆表演，默认关闭
+AnimatedEntrance = false
 ## 圆心：按玩家区域的比例；Y=-1 自动按 1080x1920 竖屏主区域适配
 CircleCenterX = 0.5
 CircleCenterY = -1
 ## 半径：游戏主区域适配后宽度的比例
 CircleRadius = 0.5
-## 头部占整张渲染图上部的比例；这部分允许出圆
+## 头部占整张渲染图上部的比例；探头时允许越过圆边，身体始终沿圆裁切
 HeadFraction = 0.20
+## 旧版 AnimatedEntrance=true 时的探头与进场终点
+CirclePeekAngle = 18
+CircleRestAngle = -30
+CircleRestRadius = 0.76
+## 人物图高度 / 圆半径上限；默认全身接近圆屏高度的四分之三
+CircleHeightRadius = 1.65
+## 固定站位：人物图中心 X、底边 Y 相对圆心的偏移 / 半径
+## 默认脚低于圆边，腿自然藏在圆形边界下方，避免露出悬空的脚
+CircleResidentX = 0.46
+CircleResidentY = -1.12
+## 登录后可选择上屏陪伴（需要角色有坐姿、画面有上方屏幕）
+AllowUpperSeat = true
+## false=登录后由用户选择；true=每次登录自动选择上屏
+UpperSeatOnLogin = false
+## 上屏相对位置，Y 从上屏底部向上计算；人物臀部对齐薄荷色坐垫
+UpperSeatX = 0.78
+UpperSeatY = 0.48
+## 上屏人物渲染图高度 / 主屏宽度
+UpperSeatHeight = 0.52
 
 [Trigger]
 ## 系统闲置（广告 / 演示循环）时显示
 ShowInAttract = true
-## 未登录（已投币、等待刷卡）时显示
-ShowInEntryWaiting = true
+## 兼容旧配置；进入刷卡流程始终淡出并隐藏，此字段不再开启刷卡页展示
+ShowInEntryWaiting = false
 ## 闲置过程中的广告视频段是否也显示（false 则只在标题/Logo 段显示）
 ShowInCommercial = false
 ## 进入该状态后延迟多少秒才出现，避免与转场动画打架
 ShowDelaySeconds = 15
 ## 状态失效后延迟多少秒淡出
 HideDelaySeconds = 2
-## 游玩/结算期间强制隐藏
+## 游玩/结算开始即淡出，完全隐藏后停止动作
 HideDuringGame = true
 
 [Character]
 ## 角色目录名: Mods/DesktopMate/Characters/<Id>/
-Id = "placeholder"
+Id = "miku-local"
 ## 整体不透明度 0.0 ~ 1.0
 Opacity = 1.0
 FadeInSeconds = 0.6
 FadeOutSeconds = 0.35
 EnableBlink = true
-EnableLookAt = true
+## 兼容旧配置；视线固定朝向玩家，不再随机漂移
+EnableLookAt = false
 ## 角色在 1920x1080 画布上的目标高度（像素）
 HeightPixels = 860
 ## 朝向微调（度），正数向玩家方向侧转
-YawDegrees = 0
+YawDegrees = 180
 
 [Animation]
 ## 单个待机动作的停留时长范围（秒）
 IdleMinSeconds = 6
 IdleMaxSeconds = 14
 ## 待机动作名，需要与 Animator 里的 State/Trigger 同名
-IdleVariants = ["Idle", "Peek", "Stretch", "Wave"]
-## 对应权重，数量不足时按 1 处理
-IdleWeights = [6, 2, 1, 1]
+IdleVariants = ["Idle", "Think", "HandsOnHips", "Shift", "LookAround", "Nod", "Wave"]
+## 对应权重，数量不足时按 1 处理；入场完成后才启用，不与主动招呼抢动作
+IdleWeights = [7, 2, 1, 1, 1, 1, 1]
+## 休息时的身体摆幅，默认 0=固定站姿；原版循环和程序动作回退均生效
+## 主动思考/叉腰等动作与眨眼、微笑不受影响
+StandingIdleMotion = 0
 ## 时长抖动比例（对应 DesktopMate 的 AddRandomFloat 语义）
 TimeJitter = 0.35
-## 视线漂移半径（对应 LookAtSoftClip）
-GazeRadius = 0.35
-## 动作整体速度倍率（1.0 = 设计节奏；0.8 更慵懒，1.2 更活泼）
+## 兼容旧配置；待机视线不再随机漂移
+GazeRadius = 0
+## 屏内待机速度倍率；进场骨骼与路径共用下方三段时长，不受此倍率影响
 MotionSpeed = 1.0
 ## 手势幅度倍率（1.0 = 设计值；调到 0.7 动作更含蓄，1.3 更外放）
 GestureIntensity = 1.0
@@ -93,13 +122,23 @@ BreathSeconds = 3.9
 DoubleBlinkChance = 0.18
 ## 腿部微动（重心转移时的膝/踝微调）。下半身被圆裁切时可关掉省一点开销
 EnableLegMotion = true
+## 把支持且在 IdleVariants 内的动作编排成短组合，动作之间留停顿
+EnableActionCombos = true
+## 减少额外手势和视线移动；保留原版自然待机、坐姿与眨眼
+ReducedMotion = false
 ## 身体进入圆内后的落定回弹时长（秒）
 EntranceSettleSeconds = 0.35
-## 探头、停顿、身体进入的时长（秒）及探头倾斜角度
-PeekInSeconds = 0.65
-PeekHoldSeconds = 1.3
-EnterSeconds = 1.2
-PeekTiltDegrees = 16
+## 探头、主动招呼、身体进入的时长（秒）及探头倾斜角度
+PeekInSeconds = 0.72
+PeekHoldSeconds = 2.55
+EnterSeconds = 1.55
+PeekTiltDegrees = 14
+
+[Interaction]
+## 只读游戏触摸按下事件；显示时触发短动作，坐姿/减少动态时只微笑
+TouchEnabled = true
+## 动作冷却（秒，2~60）；忙碌、隐藏及游玩/结算时丢弃触摸，不排队
+TouchCooldownSeconds = 8
 
 [Debug]
 ## 在 MelonLoader 日志里打印状态切换

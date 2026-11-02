@@ -13,42 +13,58 @@ namespace DesktopMateOnMaimai.Core
         private Vector2 _center;
         private float _radius;
         private float _reveal = 1f;
+        private bool _clipCircle = true;
+        private bool _protectInformation = true;
+        private bool _unclipped;
+        public void SetUnclipped(bool value)
+        {
+            if (_unclipped == value) return;
+            _unclipped = value;
+            SetVerticesDirty();
+        }
 
-        public void SetCircle(RectTransform slot, Vector2 centerFromBottomLeft, float radius, float reveal)
+        public void SetCircle(RectTransform slot, Vector2 centerFromBottomLeft, float radius, float reveal, bool clipCircle = true, bool protectInformation = true)
         {
             _slot = slot;
             _center = centerFromBottomLeft - slot.rect.size * 0.5f;
             _radius = radius;
             _reveal = Mathf.Clamp01(reveal);
+            _clipCircle = clipCircle;
+            _protectInformation = protectInformation;
             SetVerticesDirty();
         }
 
         protected override void OnPopulateMesh(VertexHelper vh)
         {
+            if (_unclipped) { base.OnPopulateMesh(vh); return; }
             vh.Clear();
             if (_slot == null || texture == null || _radius <= 0f || _reveal <= 0f) return;
             Matrix4x4 matrix = rectTransform.worldToLocalMatrix * _slot.localToWorldMatrix;
-            int count = Segments;
+            int count = _clipCircle ? Segments : 4;
             for (int i = 0; i < count; i++)
             {
                 float angle = i * Mathf.PI * 2f / Segments;
-                Vector3 point = matrix.MultiplyPoint3x4(new Vector3(_center.x + Mathf.Cos(angle) * _radius,
-                    _center.y + Mathf.Sin(angle) * _radius, 0f));
+                float px = _clipCircle ? Mathf.Cos(angle) : (i == 0 || i == 3 ? -3f : 3f);
+                float py = _clipCircle ? Mathf.Sin(angle) : (i < 2 ? -3f : 3f);
+                Vector3 point = matrix.MultiplyPoint3x4(new Vector3(_center.x + px * _radius,
+                    _center.y + py * _radius, 0f));
                 _a[i] = new Vector2(point.x, point.y);
             }
             Rect rect = rectTransform.rect;
             // Reveal from the neck down after the head's hold, while keeping
             // texture coordinates tied to the original full body rectangle.
             Rect clipRect = Rect.MinMaxRect(rect.xMin, Mathf.Lerp(rect.yMax, rect.yMin, _reveal), rect.xMax, rect.yMax);
-            for (int plane = 0; plane < 4 && count > 0; plane++)
+            // 后两平面位于玩家区域坐标，旋转人物时也不会把安全带一起转走。
+            Matrix4x4 toSlot = _slot.worldToLocalMatrix * rectTransform.localToWorldMatrix;
+            for (int plane = 0; plane < (_protectInformation ? 6 : 4) && count > 0; plane++)
             {
                 int next = 0;
                 Vector2 previous = _a[count - 1];
-                float previousDistance = Distance(previous, plane, clipRect);
+                float previousDistance = ClipDistance(previous, plane, clipRect, toSlot);
                 for (int i = 0; i < count; i++)
                 {
                     Vector2 current = _a[i];
-                    float distance = Distance(current, plane, clipRect);
+                    float distance = ClipDistance(current, plane, clipRect, toSlot);
                     if ((distance >= 0f) != (previousDistance >= 0f))
                     {
                         float t = previousDistance / (previousDistance - distance);
@@ -70,6 +86,14 @@ namespace DesktopMateOnMaimai.Core
                 vh.AddVert(new Vector3(point.x, point.y, 0f), color, uv);
             }
             for (int i = 1; i < count - 1; i++) vh.AddTriangle(0, i, i + 1);
+        }
+
+        private float ClipDistance(Vector2 p, int plane, Rect rect, Matrix4x4 toSlot)
+        {
+            if (plane < 4) return Distance(p, plane, rect);
+            Vector3 slotPoint = toSlot.MultiplyPoint3x4(new Vector3(p.x, p.y, 0f));
+            return plane == 4 ? slotPoint.x - _center.x - CircleSafeLayout.Left * _radius
+                : slotPoint.y - _center.y - CircleSafeLayout.Bottom * _radius;
         }
 
         private static float Distance(Vector2 p, int plane, Rect rect)

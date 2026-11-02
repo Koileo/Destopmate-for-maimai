@@ -1,6 +1,5 @@
 using System;
 using DesktopMateOnMaimai.Config;
-using MelonLoader;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -18,12 +17,35 @@ namespace DesktopMateOnMaimai.Core
         public CanvasGroup Group;
         public RectTransform SlotRect;     // 单个玩家区域的容器
         public RectTransform CharacterRect;
-        public RawImage HeadSurface;
-        private RectTransform _circle, _bodyProxy;
         private CircleClippedImage _bodySurface;
         private float _aspect = 0.7f;
         private float _motionTime;
         private ModConfig _cfg;
+        private bool _upperSeat;
+        private Vector2 _seatAnchor = new Vector2(0.5f, 0.52f);
+        private RectTransform _seatRect;
+
+        public bool HasUpperScreen
+        {
+            get
+            {
+                if (SlotRect == null) return false;
+                float width = SlotRect.rect.width, height = SlotRect.rect.height;
+                return height > width && height - Mathf.Min(width, height * 1080f / 1920f) > width * 0.4f;
+            }
+        }
+
+        public void SetUpperSeat(bool seated)
+        {
+            _upperSeat = seated;
+            ApplyLayout(_cfg);
+        }
+
+        public void SetSeatAnchor(Vector2 anchor)
+        {
+            _seatAnchor = new Vector2(Mathf.Clamp01(anchor.x), Mathf.Clamp01(anchor.y));
+            if (_upperSeat) SetEntrance(_motionTime, _cfg);
+        }
 
         public static OverlayCanvas Create(ModConfig cfg)
         {
@@ -56,6 +78,13 @@ namespace DesktopMateOnMaimai.Core
             charGo.transform.SetParent(slotGo.transform, false);
             oc.CharacterRect = charGo.AddComponent<RectTransform>();
 
+            var seatGo = new GameObject("LittleSeat", typeof(RectTransform));
+            seatGo.transform.SetParent(slotGo.transform, false);
+            seatGo.transform.SetAsFirstSibling();
+            oc._seatRect = seatGo.GetComponent<RectTransform>();
+            seatGo.AddComponent<CompanionSeatGraphic>().raycastTarget = false;
+            seatGo.SetActive(false);
+
             oc.ApplyLayout(cfg);
             return oc;
         }
@@ -81,7 +110,7 @@ namespace DesktopMateOnMaimai.Core
                     case "2P": slotMin = 0.5f; slotMax = 1f; break;
                     case "1P": slotMin = 0f; slotMax = 0.5f; break;
                     case "BOTH":
-                    default: slotMin = 0f; slotMax = 1f; break;
+                    default: slotMin = 0f; slotMax = 0.5f; break;
                 }
             }
 
@@ -91,7 +120,7 @@ namespace DesktopMateOnMaimai.Core
             SlotRect.offsetMax = Vector2.zero;
             SlotRect.pivot = new Vector2(0.5f, 0.5f);
 
-            if (cfg.CircleEntrance)
+            if (cfg.CircleEntrance || _upperSeat)
             {
                 CharacterRect.anchorMin = Vector2.zero;
                 CharacterRect.anchorMax = Vector2.zero;
@@ -130,25 +159,11 @@ namespace DesktopMateOnMaimai.Core
 
         public RawImage CreateSurface(string name)
         {
-            if (!_cfg.CircleEntrance) return Surface(name, CharacterRect, 0f, 1f);
-            if (_circle == null)
-            {
-                var circleGo = new GameObject("BodyCircleClip", typeof(RectTransform));
-                _circle = (RectTransform)circleGo.transform;
-                _circle.SetParent(SlotRect, false);
-                _circle.SetAsFirstSibling();
-                _circle.anchorMin = _circle.anchorMax = Vector2.zero;
-                _circle.pivot = new Vector2(0.5f, 0.5f);
-                var proxyGo = new GameObject("BodyPose", typeof(RectTransform));
-                _bodyProxy = (RectTransform)proxyGo.transform;
-                _bodyProxy.SetParent(_circle, false);
-                _bodyProxy.anchorMin = _bodyProxy.anchorMax = Vector2.one * 0.5f;
-                _bodyProxy.pivot = new Vector2(0.5f, 0f);
-            }
-            float split = 1f - _cfg.HeadFraction;
-            var body = Surface(name + "_Body", _bodyProxy, 0f, split, true);
+            // One surface and one UV mapping for the entire character. A head
+            // must never appear independently of the body beneath it.
+            var body = Surface(name, CharacterRect, 0f, 1f, true);
             _bodySurface = (CircleClippedImage)body;
-            HeadSurface = Surface(name + "_Head", CharacterRect, split, 1f);
+            if (!_cfg.CircleEntrance) _bodySurface.SetUnclipped(true);
             SetEntrance(_motionTime, _cfg);
             return body;
         }
@@ -170,7 +185,7 @@ namespace DesktopMateOnMaimai.Core
         public void SetEntrance(float time, ModConfig cfg)
         {
             _motionTime = time;
-            if (!cfg.CircleEntrance || SlotRect == null || CharacterRect == null) return;
+            if (SlotRect == null || CharacterRect == null) return;
             // Work in the canvas slot, so portrait output and a changed window size
             // do not inherit the original 1920x1080 corner assumptions.
             float width = SlotRect.rect.width, height = SlotRect.rect.height;
@@ -179,46 +194,66 @@ namespace DesktopMateOnMaimai.Core
             // The game's portrait monitor layout is 1080x1920, letterboxed when
             // the actual desktop height is shorter (this machine: 1080x1600).
             float gameWidth = height > width ? Mathf.Min(width, height * 1080f / 1920f) : shorter;
+            if (_seatRect != null) _seatRect.gameObject.SetActive(_upperSeat && HasUpperScreen);
+            if (_upperSeat && HasUpperScreen)
+            {
+                float upperHeight = height - gameWidth;
+                float seatH = Mathf.Min(gameWidth * cfg.UpperSeatHeight,
+                    upperHeight * 0.9f, width * 0.52f / _aspect);
+                Vector2 point = new Vector2(width * cfg.UpperSeatX, gameWidth + upperHeight * cfg.UpperSeatY);
+                point.x = Mathf.Clamp(point.x, seatH * _aspect * _seatAnchor.x + width * 0.45f,
+                    width * 0.97f - seatH * _aspect * (1f - _seatAnchor.x));
+                point.y = Mathf.Clamp(point.y, gameWidth + seatH * _seatAnchor.y + upperHeight * 0.04f,
+                    height - seatH * (1f - _seatAnchor.y) - upperHeight * 0.04f);
+                CharacterRect.pivot = _seatAnchor;
+                CharacterRect.sizeDelta = new Vector2(seatH * _aspect, seatH);
+                CharacterRect.anchoredPosition = point;
+                CharacterRect.localRotation = Quaternion.identity;
+                _bodySurface?.SetUnclipped(true);
+                if (_seatRect != null)
+                {
+                    _seatRect.anchorMin = _seatRect.anchorMax = Vector2.zero;
+                    _seatRect.pivot = new Vector2(0.5f, 0.5f);
+                    _seatRect.anchoredPosition = point - new Vector2(0f, seatH * 0.04f);
+                    _seatRect.sizeDelta = new Vector2(seatH * 0.42f, seatH * 0.08f);
+                }
+                return;
+            }
+            if (!cfg.CircleEntrance) { _bodySurface?.SetUnclipped(true); return; }
+            CharacterRect.pivot = new Vector2(0.5f, 0f);
+            _bodySurface?.SetUnclipped(false);
             var center = new Vector2(width * cfg.CircleCenterX,
                 cfg.CircleCenterY < 0f ? gameWidth * 0.5f : height * Mathf.Clamp01(cfg.CircleCenterY));
             float radius = gameWidth * cfg.CircleRadius;
-            float h = Mathf.Min(cfg.CharacterHeightPixels * Mathf.Max(0.05f, cfg.Scale), radius * 1.5f);
-            CharacterRect.sizeDelta = new Vector2(h * _aspect, h);
-            EntrancePose pose = EntranceMotion.Sample(time, cfg);
-            Vector2 peekHead = center + new Vector2(radius * 0.80f, radius * 0.65f);
-            Vector2 fullFoot = center + new Vector2(radius * 0.30f, -radius * 0.70f);
-            Vector2 fullHead = fullFoot + new Vector2(0f, h * (1f - cfg.HeadFraction * 0.5f));
-            Vector2 hiddenHead = new Vector2(width + h * _aspect, peekHead.y);
-            Vector2 head = pose.Reveal <= 1f ? Vector2.Lerp(hiddenHead, peekHead, pose.Reveal)
-                : Vector2.Lerp(peekHead, fullHead, pose.Reveal - 1f);
-
-            // 进入时走一点横向弧线，避免"直线平推"的塑料感
-            if (pose.Arc > 0f)
+            float h = Mathf.Min(cfg.CharacterHeightPixels * Mathf.Max(0.05f, cfg.Scale),
+                radius * cfg.CircleHeightRadius);
+            EntrancePose pose;
+            Vector2 head;
+            if (cfg.AnimatedEntrance && !cfg.ReducedMotion)
             {
-                Vector2 travel = fullHead - peekHead;
-                var perpendicular = new Vector2(-travel.y, travel.x);
-                float magnitude = perpendicular.magnitude;
-                if (magnitude > 0.001f)
-                    head += perpendicular / magnitude * (radius * 0.06f * pose.Arc);
+                h = radius * CircleSafeLayout.FitHeight(h / radius, _aspect);
+                pose = EntranceMotion.Sample(time, cfg);
+                CirclePathPose path = CircleEntrancePath.Sample(pose, cfg, h / radius, _aspect);
+                head = center + new Vector2(path.HeadX * radius, path.HeadY * radius);
+                head.y -= pose.Dip;
             }
-            head.y -= pose.Dip;
+            else
+            {
+                // Render textures include transparent margins. Fitting the entire
+                // quad into a narrow lane makes the visible character too small.
+                // Keep the requested height and let the circular surface clip the rim.
+                pose = new EntrancePose { Reveal = 2f, BodyReveal = 1f };
+                head = center + new Vector2(cfg.CircleResidentX * radius,
+                    cfg.CircleResidentY * radius + h * (1f - cfg.HeadFraction * 0.5f));
+            }
+            CharacterRect.sizeDelta = new Vector2(h * _aspect, h);
 
             Quaternion rotation = Quaternion.Euler(0f, 0f, pose.Tilt);
             Vector3 headFromFoot = rotation * new Vector3(0f, h * (1f - cfg.HeadFraction * 0.5f), 0f);
             CharacterRect.anchoredPosition = head - new Vector2(headFromFoot.x, headFromFoot.y);
             CharacterRect.localRotation = rotation;
-            if (_circle != null)
-            {
-                _circle.anchoredPosition = center;
-                _circle.sizeDelta = Vector2.one * radius * 2f;
-                _bodyProxy.sizeDelta = CharacterRect.sizeDelta;
-                _bodyProxy.anchoredPosition = CharacterRect.anchoredPosition - center;
-                _bodyProxy.localRotation = rotation;
-                if (_bodySurface != null)
-                {
-                    _bodySurface.SetCircle(SlotRect, center, radius, pose.Reveal - 1f);
-                }
-            }
+            if (_bodySurface != null)
+                _bodySurface.SetCircle(SlotRect, center, radius, 1f, true, cfg.AnimatedEntrance && !cfg.ReducedMotion);
         }
 
         public void SetAlpha(float a)

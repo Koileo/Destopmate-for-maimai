@@ -46,14 +46,6 @@
       <HintPath>$(MaimaiDir)\Sinmai_Data\Managed\UnityEngine.UIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>$(MaimaiDir)\Sinmai_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.TextRenderingModule">
-      <HintPath>$(MaimaiDir)\Sinmai_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
     <Reference Include="UnityEngine.ImageConversionModule">
       <HintPath>$(MaimaiDir)\Sinmai_Data\Managed\UnityEngine.ImageConversionModule.dll</HintPath>
       <Private>false</Private>

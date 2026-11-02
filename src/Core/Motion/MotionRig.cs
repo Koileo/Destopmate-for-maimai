@@ -22,6 +22,10 @@ namespace DesktopMateOnMaimai.Core.Motion
         private readonly Pose _base = new Pose();
         private readonly Pose _clipPose = new Pose();
         private readonly Pose _out = new Pose();
+        private readonly Pose _gestureDelta = new Pose();
+        private readonly Pose _previousDelta = new Pose();
+        private float _transitionTime = 1f;
+        private bool _entranceDriven;
 
         private readonly System.Random _rng = new System.Random(Environment.TickCount);
 
@@ -53,13 +57,15 @@ namespace DesktopMateOnMaimai.Core.Motion
         private Damp _smile, _squint, _mouth;
         private float _drowsy;
         private bool _legMotion = true;
+        private readonly float _idleMotion;
 
         public Pose Output { get { return _out; } }
         public bool Busy { get { return _clip != null; } }
         public string CurrentGesture { get { return _clip != null ? _clip.Name : null; } }
 
-        public MotionRig(float breathSeconds, float intensity, float doubleBlinkChance, bool enableBlink, bool enableLegMotion)
+        public MotionRig(float breathSeconds, float intensity, float doubleBlinkChance, bool enableBlink, bool enableLegMotion, float idleMotion = 1f)
         {
+            _idleMotion = Mathf.Clamp01(idleMotion);
             if (breathSeconds > 0.5f) _breathPeriod = breathSeconds;
             _intensity = Mathf.Clamp(intensity, 0f, 1.5f);
             _doubleChance = Mathf.Clamp01(doubleBlinkChance);
@@ -74,6 +80,10 @@ namespace DesktopMateOnMaimai.Core.Motion
             _clip = null;
             _clipTime = 0f;
             _clipWeight = 0f;
+            _entranceDriven = false;
+            _gestureDelta.Reset();
+            _previousDelta.Reset();
+            _transitionTime = 1f;
             _settle.Reset();
             _eyeYaw.Reset(0f);
             _eyePitch.Reset(0f);
@@ -83,6 +93,10 @@ namespace DesktopMateOnMaimai.Core.Motion
             _blinkValue = 0f;
             _nextBlink = NextBlinkDelay();
             _gaze = new Vector3(0f, 0f, 0.4f);
+            _faceSmile = _drowsy = 0f;
+            _smile.Reset(0f);
+            _squint.Reset(0f);
+            _mouth.Reset(0f);
         }
 
         public void SetSpeed(float speed)
@@ -119,7 +133,34 @@ namespace DesktopMateOnMaimai.Core.Motion
             _clip = clip;
             _clipTime = 0f;
             _clipWeight = 0f;
+            _previousDelta.CopyFrom(_gestureDelta);
+            _transitionTime = 0f;
+            _entranceDriven = false;
             return true;
+        }
+
+        // 进场由同一条空间时间线直接采样，不受随机待机的速度倍率影响。
+        public void SampleEntrance(string clipName, float progress)
+        {
+            if (clipName == null)
+            {
+                if (!_entranceDriven) return;
+                _previousDelta.CopyFrom(_gestureDelta);
+                _transitionTime = 0f;
+                _clip = null;
+                _entranceDriven = false;
+                return;
+            }
+            PoseClip clip = ClipLibrary.Get(clipName);
+            if (clip == null) return;
+            if (!_entranceDriven || _clip != clip)
+            {
+                _previousDelta.CopyFrom(_gestureDelta);
+                _transitionTime = 0f;
+            }
+            _clip = clip;
+            _entranceDriven = true;
+            _clipTime = Mathf.Clamp01(progress) * clip.Length;
         }
 
         public void PlayFace(string name)
@@ -141,8 +182,16 @@ namespace DesktopMateOnMaimai.Core.Motion
 
         public void Tick(float dt)
         {
-            dt = Mathf.Clamp(dt, 0f, 0.05f);
+            dt = Mathf.Clamp(dt, 0f, 0.1f);
             if (dt <= 0f) return;
+            // 消耗完整的共享 dt，同时把弹簧与眨眼积分拆成小步。
+            int steps = (int)Math.Ceiling(dt / (1f / 60f));
+            float step = dt / steps;
+            for (int i = 0; i < steps; i++) TickStep(step);
+        }
+
+        private void TickStep(float dt)
+        {
 
             _time += dt * _speed;
             BuildBase(dt);
@@ -213,6 +262,9 @@ namespace DesktopMateOnMaimai.Core.Motion
                 _base[Pose.KneeL] += 1.5f * _drowsy;
                 _base[Pose.KneeR] += 1.5f * _drowsy;
             }
+            // The idle layer must obey the same amplitude as native standing.
+            // Gestures, blinking and expressions are layered separately.
+            Pose.Lerp(_base, ClipLibrary.Neutral, _base, _idleMotion);
         }
 
         /// <summary>0..1 的呼吸曲线：40% 吸气、8% 停、52% 呼气。</summary>
@@ -225,28 +277,37 @@ namespace DesktopMateOnMaimai.Core.Motion
 
         private void AdvanceGesture(float dt)
         {
-            if (_clip == null) return;
-
-            _clipTime += dt * _speed;
-
-            float weight = 1f;
-            if (_clip.FadeIn > 0.001f && _clipTime < _clip.FadeIn)
-                weight = _clipTime / _clip.FadeIn;
-            float tail = _clip.Length - _clipTime;
-            if (_clip.FadeOut > 0.001f && tail < _clip.FadeOut)
-                weight = Mathf.Min(weight, Mathf.Max(0f, tail / _clip.FadeOut));
-
-            _clipWeight = Mathf.Clamp01(EaseUtil.Apply(Ease.InOutSine, weight));
-            _clip.Sample(_clipTime, _clipPose);
-            Pose.AddDelta(_out, _clipPose, _clip.Rest, _clipWeight * _intensity);
-
-            if (_clipTime >= _clip.Length)
+            _gestureDelta.Reset();
+            _transitionTime += dt;
+            if (_clip != null)
             {
-                _clip = null;
-                _clipWeight = 0f;
-                // 收尾回弹：身体不是"停住"，而是落定
-                _settle.Kick(0.6f);
+                if (!_entranceDriven) _clipTime += dt * _speed;
+
+                float weight = 1f;
+                if (!_entranceDriven && _clip.FadeIn > 0.001f && _clipTime < _clip.FadeIn)
+                    weight = _clipTime / _clip.FadeIn;
+                float tail = _clip.Length - _clipTime;
+                if (_clip.FadeOut > 0.001f && tail < _clip.FadeOut)
+                    weight = Mathf.Min(weight, Mathf.Max(0f, tail / _clip.FadeOut));
+
+                _clipWeight = Mathf.Clamp01(EaseUtil.Apply(Ease.InOutSine, weight));
+                _clip.Sample(_clipTime, _clipPose);
+                Pose.AddDelta(_gestureDelta, _clipPose, ClipLibrary.Neutral, _clipWeight * _intensity);
+
+                if (!_entranceDriven && _clipTime >= _clip.Length)
+                {
+                    _clip = null;
+                    _clipWeight = 0f;
+                    // 收尾回弹：身体不是"停住"，而是落定
+                    _settle.Kick(0.6f);
+                }
             }
+            else _clipWeight = 0f;
+
+            // 中途换段保留旧姿态再柔和交接，肩、肘、腕不会一帧归零。
+            float blend = EaseUtil.Apply(Ease.Smooth, _transitionTime / 0.16f);
+            Pose.Lerp(_gestureDelta, _previousDelta, _gestureDelta, blend);
+            for (int i = 0; i < Pose.Count; i++) _out.V[i] += _gestureDelta.V[i];
         }
 
         private void ApplySettle(float dt)
